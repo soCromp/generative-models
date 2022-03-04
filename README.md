@@ -1,4 +1,5 @@
 # generative-models
+Adapted from https://github.com/AntixK/PyTorch-VAE
 
 - *run.py*: Specify the model and hyperparameters, it creates, trains and tests the model.
 - *train.py*: Training code (test.py to come next)
