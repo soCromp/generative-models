@@ -1,17 +1,6 @@
 model_params:
   name: 'vae'
-  in_channels: 3 #3 for celeba
   latent_dims: 128
-
-
-data_params:
-  data_name: 'celeba'
-  data_path: "data/"
-  train_batch_size: 64
-  val_batch_size:  64
-  patch_size: 64
-  num_workers: 4
-
 
 exp_params:
   LR: 0.005
@@ -22,7 +11,7 @@ exp_params:
 
 trainer_params:
   gpus: [0]
-  max_epochs: 3
+  max_epochs: 1
 
 logging_params:
   save_dir: "logs/"
