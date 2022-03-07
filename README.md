@@ -8,6 +8,7 @@ Adapted from https://github.com/AntixK/PyTorch-VAE
 - PyTorch 1.10
 - TorchVision 0.11
 - PyTorch Lightning 1.5
+- Torch-fidelity 0.3
 
 **Files**
 - *run.py*: Specify the model and hyperparameters, it creates, trains and tests the model.

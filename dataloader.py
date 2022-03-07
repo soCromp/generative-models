@@ -149,7 +149,8 @@ class Dataset(LightningDataModule):
             )
         elif self.name.lower() == 'mnist':
             trans = transforms.Compose([transforms.Resize(self.patch_size),
-                                                transforms.ToTensor(),])
+                                        transforms.Grayscale(3),
+                                        transforms.ToTensor() ])
             self.train_dataset = MNIST(self.data_dir, train=True, transform=trans, download=False)
             self.val_dataset = MNIST(self.data_dir, train=False, transform=trans, download=False)
 

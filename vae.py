@@ -151,7 +151,7 @@ class base_vae(pl.LightningModule):
         :param x: (Tensor) [B x C x H x W]
         :return: (Tensor) [B x C x H x W]
         """
-        f = self.forward(x)[0]
+        f = self.forward(x.cuda())[0]
         return f
 
     def configure_optimizers(self):

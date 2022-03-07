@@ -1,7 +1,7 @@
 import os
 import argparse
 import vae
-from experiment import Experiment
+from model import Model
 from pytorch_lightning import Trainer
 import yaml
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
@@ -9,6 +9,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pathlib import Path
 from dataloader import Dataset
 from pytorch_lightning.plugins import DDPPlugin
+# from torchmetrics.image.inception import InceptionScore
+from metrics.inceptionscore import InceptionScore
+import torch
 
 parser = argparse.ArgumentParser(description='Generic experiment driver')
 parser.add_argument('--modelconfig', '-m', help='yaml file of model hyperparameters', default='conf/model/vae.yaml')
@@ -46,9 +49,7 @@ tb_logger =  TensorBoardLogger(save_dir=modelconfig['logging_params']['save_dir'
 # For reproducibility
 # seed_everything(modelconfig['exp_params']['manual_seed'], True)
 
-experiment = Experiment(model,
-                          modelconfig['exp_params'])
-
+experiment = Model(model, modelconfig['exp_params'])
 data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus']) != 0)
 data.setup()
 
@@ -70,3 +71,12 @@ Path(f"{tb_logger.log_dir}/Reconstructions").mkdir(exist_ok=True, parents=True)
 
 print(f"======= Training {modelconfig['model_params']['name']} =======")
 runner.fit(experiment, datamodule=data)
+
+
+print(f"======= Calculating metrics for trained {modelconfig['model_params']['name']} =======")
+inception = InceptionScore()
+model.cuda()
+recons, samples = experiment.sample_images(tofile=False, num_samples=100)
+samples.cuda()
+inception.update(samples.type(torch.uint8))
+print(inception.compute())

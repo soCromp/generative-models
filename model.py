@@ -12,12 +12,12 @@ from torchvision.datasets import CelebA
 from torch.utils.data import DataLoader
 
 
-class Experiment(pl.LightningModule):
+class Model(pl.LightningModule):
 
     def __init__(self,
                  model,
                  params: dict) -> None:
-        super(Experiment, self).__init__()
+        super(Model, self).__init__()
 
         self.model = model
         self.params = params
@@ -61,7 +61,7 @@ class Experiment(pl.LightningModule):
     def on_validation_end(self) -> None:
         self.sample_images()
         
-    def sample_images(self):
+    def sample_images(self, tofile=True, num_samples=144):
         # Get sample reconstruction image            
         test_input, test_label = next(iter(self.trainer.datamodule.test_dataloader()))
         test_input = test_input.to(self.curr_device)
@@ -69,25 +69,31 @@ class Experiment(pl.LightningModule):
 
         #       test_input, test_label = batch
         recons = self.model.generate(test_input, labels = test_label)
-        vutils.save_image(recons.data,
-                          os.path.join(self.logger.log_dir , 
-                                       "Reconstructions", 
-                                       f"recons_{self.logger.name}_Epoch_{self.current_epoch}.png"),
-                          normalize=True,
-                          nrow=12)
+        if tofile:
+            vutils.save_image(recons.data,
+                            os.path.join(self.logger.log_dir , 
+                                        "Reconstructions", 
+                                        f"recons_{self.logger.name}_Epoch_{self.current_epoch}.png"),
+                            normalize=True,
+                            nrow=12)
 
         try:
-            samples = self.model.sample(144,
+            samples = self.model.sample(num_samples,
                                         self.curr_device,
                                         labels = test_label)
-            vutils.save_image(samples.cpu().data,
-                              os.path.join(self.logger.log_dir , 
-                                           "Samples",      
-                                           f"{self.logger.name}_Epoch_{self.current_epoch}.png"),
-                              normalize=True,
-                              nrow=12)
+            if tofile:
+                vutils.save_image(samples.cpu().data,
+                                os.path.join(self.logger.log_dir , 
+                                            "Samples",      
+                                            f"{self.logger.name}_Epoch_{self.current_epoch}.png"),
+                                normalize=True,
+                                nrow=12)
+            else: return recons, samples
         except Warning:
-            pass
+            if tofile:
+                pass
+            else:
+                return recons
 
     def configure_optimizers(self):
 
