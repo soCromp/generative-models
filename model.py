@@ -64,17 +64,18 @@ class Model(pl.LightningModule):
         
     def on_validation_end(self) -> None:
         self.sample_images()
-        _, samples = self.sample_images(tofile=False, num_samples=128)
+        recons, samples, origs = self.sample_images(tofile=False, num_samples=128, orig=True)
         samples.cuda()
         samples = samples*255
         self.inception.update(samples.type(torch.uint8))
         a,b = self.inception.compute()
         print(a.item(), b.item())
-        # self.fid.update(samples.type(torch.uint8))
-        # print(self.fid.compute())
+        self.fid.update(recons.type(torch.uint8), real=False)
+        self.fid.update(origs.type(torch.uint8), real=True)
+        print(self.fid.compute())
 
         
-    def sample_images(self, tofile=True, num_samples=144):
+    def sample_images(self, tofile=True, num_samples=144, orig=False):
         # Get sample reconstruction image            
         test_input, test_label = next(iter(self.trainer.datamodule.test_dataloader()))
         test_input = test_input.to(self.curr_device)
@@ -101,10 +102,13 @@ class Model(pl.LightningModule):
                                             f"{self.logger.name}_Epoch_{self.current_epoch}.png"),
                                 normalize=True,
                                 nrow=12)
+            elif orig: return recons, samples, test_input
             else: return recons, samples
         except Warning:
             if tofile:
                 pass
+            elif orig:
+                return recons, None, test_input
             else:
                 return recons
 

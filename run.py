@@ -9,8 +9,8 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pathlib import Path
 from dataloader import Dataset
 from pytorch_lightning.plugins import DDPPlugin
-# from torchmetrics.image.inception import InceptionScore
-from metrics.inceptionscore import InceptionScore
+from torchmetrics.image.inception import InceptionScore
+from torchmetrics.image.fid import FrechetInceptionDistance
 import torch
 
 parser = argparse.ArgumentParser(description='Generic experiment driver')
@@ -75,10 +75,14 @@ runner.fit(experiment, datamodule=data)
 
 print(f"======= Calculating metrics for trained {modelconfig['model_params']['name']} =======")
 inception = InceptionScore()
+fid = FrechetInceptionDistance()
 model.cuda()
-_, samples = experiment.sample_images(tofile=False, num_samples=128)
+recons, samples, origs = self.sample_images(tofile=False, num_samples=128, orig=True)
 samples.cuda()
 samples = samples*255
 inception.update(samples.type(torch.uint8))
 a,b = inception.compute()
 print(a.item(), b.item())
+fid.update(recons.type(torch.uint8), real=False)
+fid.update(origs.type(torch.uint8), real=True)
+print(fid.compute())
