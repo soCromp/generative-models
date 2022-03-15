@@ -10,7 +10,8 @@ from torchvision import transforms
 import torchvision.utils as vutils
 from torchvision.datasets import CelebA
 from torch.utils.data import DataLoader
-from metrics.inceptionscore import InceptionScore
+from torchmetrics.image.inception import InceptionScore
+from torchmetrics.image.fid import FrechetInceptionDistance
 
 
 class Model(pl.LightningModule):
@@ -22,6 +23,8 @@ class Model(pl.LightningModule):
 
         self.model = model
         self.params = params
+        self.inception = InceptionScore()
+        self.fid = FrechetInceptionDistance()
         self.curr_device = None
         self.hold_graph = False
         try:
@@ -61,14 +64,15 @@ class Model(pl.LightningModule):
         
     def on_validation_end(self) -> None:
         self.sample_images()
+        _, samples = self.sample_images(tofile=False, num_samples=128)
+        samples.cuda()
+        samples = samples*255
+        self.inception.update(samples.type(torch.uint8))
+        a,b = self.inception.compute()
+        print(a.item(), b.item())
+        # self.fid.update(samples.type(torch.uint8))
+        # print(self.fid.compute())
 
-        # inception = InceptionScore()
-        # _, samples = self.sample_images(tofile=False, num_samples=512)
-        # samples.cuda()
-        # samples = samples*255
-        # inception.update(samples.type(torch.uint8))
-        # a,b = inception.compute()
-        # print(a.item(), b.item())
         
     def sample_images(self, tofile=True, num_samples=144):
         # Get sample reconstruction image            

@@ -76,7 +76,7 @@ runner.fit(experiment, datamodule=data)
 print(f"======= Calculating metrics for trained {modelconfig['model_params']['name']} =======")
 inception = InceptionScore()
 model.cuda()
-_, samples = experiment.sample_images(tofile=False, num_samples=512)
+_, samples = experiment.sample_images(tofile=False, num_samples=128)
 samples.cuda()
 samples = samples*255
 inception.update(samples.type(torch.uint8))
