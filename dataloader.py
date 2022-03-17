@@ -84,6 +84,7 @@ class Dataset(LightningDataModule):
         data_path: str,
         train_batch_size: int = 8,
         val_batch_size: int = 8,
+        num_samples: int = 0, #0=use full dataset size
         patch_size: Union[int, Sequence[int]] = (256, 256),
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -95,6 +96,7 @@ class Dataset(LightningDataModule):
         self.data_dir = data_path
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
+        self.num_samples = num_samples
         self.patch_size = patch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
@@ -153,6 +155,11 @@ class Dataset(LightningDataModule):
                                         transforms.ToTensor() ])
             self.train_dataset = MNIST(self.data_dir, train=True, transform=trans, download=False)
             self.val_dataset = MNIST(self.data_dir, train=False, transform=trans, download=False)
+
+        if self.num_samples > 0:
+            self.train_dataset = torch.utils.data.random_split(self.train_dataset, 
+                [self.num_samples, len(self.train_dataset)-self.num_samples])[0]
+            print('using random subset consisting of', len(self.train_dataset), 'training examples')
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(

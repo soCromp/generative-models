@@ -62,19 +62,37 @@ class Model(pl.LightningModule):
         self.log_dict({f"val_{key}": val.item() for key, val in val_loss.items()}, sync_dist=True)
 
         
-    def on_validation_end(self) -> None:
+    def on_validation_epoch_end(self) -> None:
         self.sample_images()
         recons, samples, origs = self.sample_images(tofile=False, num_samples=128, orig=True)
         samples.cuda()
         samples = samples*255
         self.inception.update(samples.type(torch.uint8))
-        a,b = self.inception.compute()
-        print(a.item(), b.item())
+        imean, istd = self.inception.compute()
+        self.log('inception mean', imean.item())
+        self.log('inception stdv', istd.item())
+
         self.fid.update(recons.type(torch.uint8), real=False)
         self.fid.update(origs.type(torch.uint8), real=True)
-        print(self.fid.compute())
+        self.log('frechet', self.fid.compute().item())
 
-        
+
+    def test_step(self, batch, batch_idx) -> None:
+        recons, samples, origs = self.sample_images(tofile=False, num_samples=64, orig=True)
+        samples = samples*255
+        self.inception.update(samples.type(torch.uint8))
+        self.fid.update(recons.type(torch.uint8), real=False)
+        self.fid.update(origs.type(torch.uint8), real=True)
+
+
+    def on_test_epoch_end(self) -> None:
+        imean, istd = self.inception.compute()
+        frechet = self.fid.compute().item()
+        self.log('inception mean', imean.item())
+        self.log('inception stdv', istd.item())
+        self.log('frechet', self.fid.compute().item())
+
+
     def sample_images(self, tofile=True, num_samples=144, orig=False):
         # Get sample reconstruction image            
         test_input, test_label = next(iter(self.trainer.datamodule.test_dataloader()))

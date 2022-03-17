@@ -72,17 +72,21 @@ Path(f"{tb_logger.log_dir}/Reconstructions").mkdir(exist_ok=True, parents=True)
 print(f"======= Training {modelconfig['model_params']['name']} =======")
 runner.fit(experiment, datamodule=data)
 
+tb_logger.save()
 
-print(f"======= Calculating metrics for trained {modelconfig['model_params']['name']} =======")
-inception = InceptionScore()
-fid = FrechetInceptionDistance()
-model.cuda()
-recons, samples, origs = self.sample_images(tofile=False, num_samples=128, orig=True)
-samples.cuda()
-samples = samples*255
-inception.update(samples.type(torch.uint8))
-a,b = inception.compute()
-print(a.item(), b.item())
-fid.update(recons.type(torch.uint8), real=False)
-fid.update(origs.type(torch.uint8), real=True)
-print(fid.compute())
+print(f"======= Evaluating {modelconfig['model_params']['name']} =======")
+t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
+print(t)
+
+with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
+    f.write('---------test scores---------\n')
+    f.write('inception mean\n')
+    f.write(str(t['inception mean']))
+    f.write('\ninception stdev\n')
+    f.write(str(t['inception stdv']))
+    f.write('\nfrechet\n')
+    f.write(str(t['frechet']))
+    f.write('\n-------hyperparameters-------\n')
+    f.write(str(modelconfig))
+    f.write(str(dataconfig))
+
