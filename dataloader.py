@@ -153,8 +153,8 @@ class Dataset(LightningDataModule):
             trans = transforms.Compose([transforms.Resize(self.patch_size),
                                         transforms.Grayscale(3),
                                         transforms.ToTensor() ])
-            self.train_dataset = MNIST(self.data_dir, train=True, transform=trans, download=False)
-            self.val_dataset = MNIST(self.data_dir, train=False, transform=trans, download=False)
+            self.train_dataset = MNIST(self.data_dir, train=True, transform=trans, download=True)
+            self.val_dataset = MNIST(self.data_dir, train=False, transform=trans, download=True)
 
         if self.num_samples > 0:
             self.train_dataset = torch.utils.data.random_split(self.train_dataset, 
