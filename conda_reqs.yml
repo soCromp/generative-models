@@ -178,4 +178,3 @@ dependencies:
     - yarl==1.7.2
     - yaspin==2.1.0
     - zipp==3.7.0
-prefix: /home/sonia/miniconda3/envs/py
