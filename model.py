@@ -53,7 +53,7 @@ class Model(pl.LightningModule):
         real_img, labels = batch
         self.curr_device = real_img.device
 
-        results = self.forward(real_img, labels = labels)
+        results = self.forward(real_img, labels = labels, optimizer_idx=optimizer_idx)
         val_loss = self.model.loss_function(*results,
                                             M_N = 1.0, #real_img.shape[0]/ self.num_val_imgs,
                                             optimizer_idx = optimizer_idx,
@@ -131,37 +131,4 @@ class Model(pl.LightningModule):
                 return recons
 
     def configure_optimizers(self):
-
-        optims = []
-        scheds = []
-
-        optimizer = optim.Adam(self.model.parameters(),
-                               lr=self.params['LR'],
-                               weight_decay=self.params['weight_decay'])
-        optims.append(optimizer)
-        # Check if more than 1 optimizer is required (Used for adversarial training)
-        try:
-            if self.params['LR_2'] is not None:
-                optimizer2 = optim.Adam(getattr(self.model,self.params['submodel']).parameters(),
-                                        lr=self.params['LR_2'])
-                optims.append(optimizer2)
-        except:
-            pass
-
-        try:
-            if self.params['scheduler_gamma'] is not None:
-                scheduler = optim.lr_scheduler.ExponentialLR(optims[0],
-                                                             gamma = self.params['scheduler_gamma'])
-                scheds.append(scheduler)
-
-                # Check if another scheduler is required for the second optimizer
-                try:
-                    if self.params['scheduler_gamma_2'] is not None:
-                        scheduler2 = optim.lr_scheduler.ExponentialLR(optims[1],
-                                                                      gamma = self.params['scheduler_gamma_2'])
-                        scheds.append(scheduler2)
-                except:
-                    pass
-                return optims, scheds
-        except:
-            return optims
+        return self.model.configure_optimizers(self.params)

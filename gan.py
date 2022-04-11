@@ -36,13 +36,6 @@ class Generator(nn.Module):
         img = img.view(img.size(0), self.out_channels, self.out_dim, self.out_dim)
         return img
 
-
-    def configure_optimizers(self):
-        optims = []
-        opts = optim.Adam(self.params, lr=opt.lr, betas=(self.params['b1'], self.params['b2'])
-        optims.append(opts)
-        return optims
-
     
 class Discriminator(nn.Module):
     def __init__(self, in_dim:int, in_channels:int) -> None:
@@ -62,13 +55,7 @@ class Discriminator(nn.Module):
     def forward(self, input: Tensor, **kwargs) -> List[Tensor]:
         flat = input.view(input.size(0), self.in_channels, self.in_dim, self.in_dim)
         preds = self.model(flat)
-        return preds    
-
-    def configure_optimizers(self):
-        optims = []
-        opts = optim.Adam(self.params, self.params['LR'], betas=(self.params['b1'], self.params['b2']))
-        optims.append(opts)
-        return opts
+        return preds 
 
 
 class base_gan(pl.LightningModule):
@@ -77,12 +64,28 @@ class base_gan(pl.LightningModule):
         self.G = Generator()
         self.D = Discriminator()
 
-    def forward(self, input: Tensor, **kwargs) -> List[Tensor]:
-        z = Tensor(np.random.normal(0, 1, (imgs.shape[0], self.params(latent_dims)))) #sample rand noise
-        fakes = G(z) 
-        # mix fakes with real data
-        # discriminator predicts fake v real
-        return NotImplementedError #return fakes, preds, truth labels
+    def forward(self, input: Tensor, optimizer_idx, **kwargs) -> List[Tensor]:
+        reals = input
+        z = Tensor(np.random.normal(0, 1, (reals.shape[0], self.params(latent_dims)))) #sample rand noise
+        z.type_as(reals)
+        fakes = self.G(z) 
+
+        if optimizer_idx==0: #train generator
+            labels = torch.ones(reals.shape[0], 1).type_as(reals) # 1 means real image
+                                                        # we want discriminator predicting lots of 1s (fooled)
+            loss = self.loss_function(self.D(fakes), labels)
+
+        elif optimizer_idx==1: # train discriminator
+            # how well can it detect reals?
+            labels = torch.ones(reals.shape[0],1).type_as(reals)
+            real_loss = self.loss_function(self.D(reals), labels)
+            # how well can it detect fakes?
+            labels = torch.zeros(reals.shape[0],1).type_as(reals)
+            fake_loss = self.loss_function(self.D(fakes), labels)
+            # discriminator loss is avg of real and fake losses
+            loss = real_loss/2 + fake_loss/2
+
+        return {'loss': loss, 'fakes':fakes}
 
     def loss_function(self,
                       *args,
@@ -99,8 +102,10 @@ class base_gan(pl.LightningModule):
     def generate(self, x: Tensor, **kwargs) -> Tensor:
         return self.G(x)
 
-    def configure_optimizers(self):
-        return NotImplementedError
+    def configure_optimizers(self, params):
+        gen = optim.Adam(self.G.parameters(), params['LR'], betas=(params['b1'], params['b2']))
+        dis = optim.Adam(self.D.parameters(), params['LR'], betas=(params['b1'], params['b2']))
+        return [gen, dis], [] #second arg is scheduler
 
 
 class vanilla_gan(base_gan):

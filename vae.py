@@ -1,7 +1,7 @@
 # adapted from https://github.com/AntixK/PyTorch-VAE/blob/master/models/vanilla_vae.py
 
 import torch
-from torch import nn
+from torch import nn, optim
 from torch.nn import functional as F
 import pytorch_lightning as pl
 from typing import List, Callable, Union, Any, TypeVar, Tuple
@@ -154,15 +154,18 @@ class base_vae(pl.LightningModule):
         f = self.forward(x.cuda())[0]
         return f
 
-    def configure_optimizers(self):
+    def configure_optimizers(self, params):
         # could get extended later
         optims = []
-
-        optimizer = optim.Adam(self.model.parameters(),
-                               lr=self.params['LR'],
-                               weight_decay=self.params['weight_decay'])
+        scheds = []
+        optimizer = optim.Adam(self.parameters(), #self.model.parameters(),
+                               lr=params['LR'],
+                               weight_decay=params['weight_decay'])
         optims.append(optimizer)
-        return optims
+        scheduler = optim.lr_scheduler.ExponentialLR(optims[0],
+                                        gamma = params['scheduler_gamma'])
+        scheds.append(scheduler)
+        return optims, scheds
 
 
 class vanilla_vae(base_vae):
