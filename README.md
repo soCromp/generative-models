@@ -1,7 +1,7 @@
 # generative-models
 Adapted from https://github.com/AntixK/PyTorch-VAE
 
-``conda env create -f conda_reqs.yml``
+``conda env create -f conda_reqs.yml`` <br/>
 ``python run.py -m conf/model/vae.yaml -d conf/data/celeba.yaml``
 
 **Requirements**
