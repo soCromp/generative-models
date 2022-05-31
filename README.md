@@ -1,6 +1,8 @@
 # generative-models
 Adapted from https://github.com/AntixK/PyTorch-VAE
 
+Download CelebA from [https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing](https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing) and place it in a ./data directory (MNIST gets downloaded automatically)
+
 ``conda env create -f conda_reqs.yml`` <br/>
 ``python run.py -m conf/model/vae.yaml -d conf/data/celeba.yaml``
 

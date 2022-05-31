@@ -11,7 +11,7 @@ from dataloader import Dataset
 from pytorch_lightning.plugins import DDPPlugin
 from torchmetrics.image.inception import InceptionScore
 from torchmetrics.image.fid import FrechetInceptionDistance
-import torch
+import simplejson
 
 parser = argparse.ArgumentParser(description='Generic experiment driver')
 parser.add_argument('--modelconfig', '-m', help='yaml file of model hyperparameters', default='conf/model/vae.yaml')
@@ -87,6 +87,6 @@ with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
     f.write('\nfrechet\n')
     f.write(str(t['frechet']))
     f.write('\n-------hyperparameters-------\n')
-    f.write(str(modelconfig))
-    f.write(str(dataconfig))
+    f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
+    f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
 

@@ -124,6 +124,8 @@ class Dataset(LightningDataModule):
                     split='val',
                     transform=val_transforms,
                 )
+
+                
         elif self.name.lower() == 'celeba':
             train_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
                                                 transforms.CenterCrop(148),
@@ -139,7 +141,7 @@ class Dataset(LightningDataModule):
                 self.data_dir,
                 split='train',
                 transform=train_transforms,
-                download=False,
+                download=True,
             )
             
             # Replace CelebA with your dataset
@@ -147,8 +149,10 @@ class Dataset(LightningDataModule):
                 self.data_dir,
                 split='test',
                 transform=val_transforms,
-                download=False,
+                download=True,
             )
+
+
         elif self.name.lower() == 'mnist':
             trans = transforms.Compose([transforms.Resize(self.patch_size),
                                         transforms.Grayscale(3),
