@@ -53,30 +53,30 @@ tb_logger =  TensorBoardLogger(save_dir=modelconfig['logging_params']['save_dir'
 # For reproducibility
 # seed_everything(modelconfig['exp_params']['manual_seed'], True)
 
-# experiment = Model(model, modelconfig['exp_params'])
-# data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus']) != 0)
-# data.setup()
+experiment = Model(model, modelconfig['exp_params'])
+data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus']) != 0)
+data.setup()
 
-# runner = Trainer(logger=tb_logger,
-#                  callbacks=[
-#                      LearningRateMonitor(),
-#                      ModelCheckpoint(save_top_k=2, 
-#                                      dirpath =os.path.join(tb_logger.log_dir , "checkpoints"), 
-#                                      monitor= "val_loss",
-#                                      save_last= True),
-#                  ],
-#                  strategy=DDPPlugin(find_unused_parameters=False),
-#                  **modelconfig['trainer_params'])
-
-
-# Path(f"{tb_logger.log_dir}/Samples").mkdir(exist_ok=True, parents=True)
-# Path(f"{tb_logger.log_dir}/Reconstructions").mkdir(exist_ok=True, parents=True)
+runner = Trainer(logger=tb_logger,
+                 callbacks=[
+                     LearningRateMonitor(),
+                     ModelCheckpoint(save_top_k=2, 
+                                     dirpath =os.path.join(tb_logger.log_dir , "checkpoints"), 
+                                     monitor= "val_loss",
+                                     save_last= True),
+                 ],
+                 strategy=DDPPlugin(find_unused_parameters=False),
+                 **modelconfig['trainer_params'])
 
 
-# print(f"======= Training {modelconfig['model_params']['name']} =======")
-# runner.fit(experiment, datamodule=data)
+Path(f"{tb_logger.log_dir}/Samples").mkdir(exist_ok=True, parents=True)
+Path(f"{tb_logger.log_dir}/Reconstructions").mkdir(exist_ok=True, parents=True)
 
-# tb_logger.save()
+
+print(f"======= Training {modelconfig['model_params']['name']} =======")
+runner.fit(experiment, datamodule=data)
+
+tb_logger.save()
 
 # print(f"======= Evaluating {modelconfig['model_params']['name']} =======")
 # t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]

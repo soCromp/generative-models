@@ -33,9 +33,11 @@ class Model(pl.LightningModule):
             pass
 
     def forward(self, input: Tensor, **kwargs) -> Tensor:
-        return self.model(input, **kwargs)
+        # print('forward')
+        return self.model(input.cuda(), **kwargs)
 
     def training_step(self, batch, batch_idx, optimizer_idx = 0):
+        # print('training step')
         real_img, labels = batch
         self.curr_device = real_img.device
 
@@ -50,6 +52,7 @@ class Model(pl.LightningModule):
         return train_loss['loss']
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
+        # print('validation step')
         real_img, labels = batch
         self.curr_device = real_img.device
 
@@ -63,6 +66,7 @@ class Model(pl.LightningModule):
 
         
     def on_validation_epoch_end(self) -> None:
+        # print('on_validation_epoch_end')
         self.sample_images()
         recons, samples, origs = self.sample_images(tofile=False, num_samples=128, orig=True)
         samples.cuda()
@@ -78,6 +82,7 @@ class Model(pl.LightningModule):
 
 
     def test_step(self, batch, batch_idx) -> None:
+        # print('test_step')
         recons, samples, origs = self.sample_images(tofile=False, num_samples=64, orig=True)
         samples = samples*255
         self.inception.update(samples.type(torch.uint8))
@@ -86,6 +91,7 @@ class Model(pl.LightningModule):
 
 
     def on_test_epoch_end(self) -> None:
+        # print('on_test_epoch_end')
         imean, istd = self.inception.compute()
         frechet = self.fid.compute().item()
         self.log('inception mean', imean.item())
@@ -94,6 +100,7 @@ class Model(pl.LightningModule):
 
 
     def sample_images(self, tofile=True, num_samples=144, orig=False):
+        # print('sample images')
         # Get sample reconstruction image            
         test_input, test_label = next(iter(self.trainer.datamodule.test_dataloader()))
         test_input = test_input.to(self.curr_device)

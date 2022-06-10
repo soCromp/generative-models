@@ -6,31 +6,41 @@ from typing import List, Callable, Union, Any, TypeVar, Tuple
 from inspect import isfunction
 import math
 from einops import rearrange
+import tqdm
 Tensor = TypeVar('torch.tensor')
 
 class base_diffusion(pl.LightningModule):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
+        self.num_timesteps=1000
+        self.image_size = 64
         #create model here
         self.net = Unet(dim = 56, dim_mults = (1, 2, 4, 8))
-        self.gd = GaussianDiffusion(self.net, image_size = 128,
-                            timesteps = 1000,   # number of steps
+        self.gd = GaussianDiffusion(self.net, image_size = self.image_size,
+                            timesteps = self.num_timesteps,   # number of steps
                             loss_type = 'l1'    # L1 or L2 - doesn't actually do anything right now
         )
 
     def forward(self, input: Tensor, **kwargs) -> Any:
-        self.gd(input)
-        return NotImplementedError
+        input = input.cuda()
+        b, c, h, w = input.shape
+        noise = torch.randn_like(input)
+        t = torch.randint(0, self.num_timesteps, (b,)).long().cuda()
+        x = self.gd.q_sample(x_start=input, t=t, noise=noise).cuda()
+        model_out = self.gd.denoise_fn(x, t) #predicting the noise atm
+        return model_out, input, noise, t, x
 
     def loss_function(self,
                       *args,
                       **kwargs) -> dict:
-        return NotImplementedError
+        output = args[0]
+        noise = args[2]
+        return {'loss': F.l1_loss(output, noise)}
 
     def sample(self,
                num_samples:int,
                current_device: int, **kwargs) -> Tensor:
-        return NotImplementedError
+        return self.gd.sample(num_samples)
 
     def generate(self, x: Tensor, **kwargs) -> Tensor:
         """
@@ -42,7 +52,8 @@ class base_diffusion(pl.LightningModule):
         return f
 
     def configure_optimizers(self, params):
-        return NotImplementedError
+        return super().configure_optimizers()
+
 
 def default(val, d):
     if val is not None:
@@ -65,7 +76,7 @@ class SinusoidalPosEmb(nn.Module):
     def forward(self, x):
         half_dim = self.dim // 2
         emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim) * -emb)
+        emb = torch.exp(torch.arange(half_dim) * -emb).cuda()
         # emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
         emb = x[:, None] * emb[None, :]
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
@@ -110,7 +121,7 @@ class Block(pl.LightningModule):
         x = self.proj(x)
         x = self.norm(x)
 
-        if exists(scale_shift):
+        if scale_shift is not None:
             scale, shift = scale_shift
             x = x * (scale + 1) + shift
 
@@ -271,7 +282,7 @@ class Unet(pl.LightningModule):
 
     def forward(self, x, time):
         x = self.init_conv(x)
-        t = self.time_mlp(time) if (self.time_mlp is not None) else None
+        t = self.time_mlp(time).cuda() if (self.time_mlp is not None) else None
         h = []
 
         for block1, block2, attn, downsample in self.downs:
@@ -294,9 +305,13 @@ class Unet(pl.LightningModule):
 
         return self.final_conv(x)
 
+    def configure_optimizers(self, params):
+        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        return [optimizer]
+
 def extract(a, t, x_shape):
     b, *_ = t.shape
-    out = a.gather(-1, t)
+    out = a.gather(-1, t.cuda())
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
 def noise_like(shape, device, repeat=False):
@@ -315,6 +330,12 @@ def cosine_beta_schedule(timesteps, s = 0.008):
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
     return torch.clip(betas, 0, 0.999)
+
+def linear_beta_schedule(timesteps):
+    beta_start = 0.0001
+    beta_end = 0.02
+    return torch.linspace(beta_start, beta_end, timesteps)
+
 
 class GaussianDiffusion(pl.LightningModule):
     def __init__(
@@ -336,7 +357,7 @@ class GaussianDiffusion(pl.LightningModule):
         self.denoise_fn = denoise_fn
         self.objective = objective
 
-        betas = cosine_beta_schedule(timesteps)
+        betas = linear_beta_schedule(timesteps)
 
         alphas = 1. - betas
         alphas_cumprod = torch.cumprod(alphas, axis=0)
@@ -375,20 +396,77 @@ class GaussianDiffusion(pl.LightningModule):
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
 
+    def q_sample(self, x_start, t, noise=None):
+        noise = default(noise, lambda: torch.randn_like(x_start))
+
+        return (
+            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
+            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
+        )
+
+    def p_losses(self, x_start, t, noise = None):
+        b, c, h, w = x_start.shape
+        noise = default(noise, lambda: torch.randn_like(x_start))
+
+        x = self.q_sample(x_start=x_start, t=t, noise=noise)
+        model_out = self.denoise_fn(x, t)
+
+        if self.objective == 'pred_noise':
+            target = noise
+        elif self.objective == 'pred_x0':
+            target = x_start
+        else:
+            raise ValueError(f'unknown objective {self.objective}')
+
+        loss = F.l1_loss(model_out, target)
+        return loss
+
     def forward(self, img, *args, **kwargs):
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
-        img = img * 2 - 1 # makes the range [-1,1]
-        b, c, h, w = img.shape
-        noise = default(noise, lambda: torch.randn_like(img))
-        x = (
-            extract(self.sqrt_alphas_cumprod, t, img.shape) * img +
-            extract(self.sqrt_one_minus_alphas_cumprod, t, img.shape) * noise
-        )
-        model_out = self.denoise_fn(x, t)
+        img = img*2-1
+        return self.p_losses(img, t, *args, **kwargs)
 
-        target = noise
-        loss = F.l1_loss(model_out, target)
-        return loss
+    @torch.no_grad()
+    def sample(self, batch_size = 16):
+        image_size = self.image_size
+        channels = self.channels
+        shape = (batch_size, channels, image_size, image_size)
+        img = torch.randn(shape)
+
+        # for i in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
+        for i in reversed(range(0, self.num_timesteps)):
+            img = self.p_sample(img, torch.full((batch_size,), i, dtype=torch.long))
+
+        img = (img + 1) * 0.5
+        return img
+
+    @torch.no_grad()
+    def p_sample(self, x, t, clip_denoised=True, repeat_noise=False):
+        x = x.cuda()
+        t = t.cuda()
+        b, *_, device = *x.shape, x.device
+        model_output = self.denoise_fn(x, t)
+        x_start = (
+            extract(self.sqrt_recip_alphas_cumprod, t, x.shape) * x -
+            extract(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * model_output
+        )
+        x_start.clamp_(-1., 1.)
+        model_mean, _, model_log_variance = self.q_posterior(x_start = x_start, x_t = x, t = t)
+        noise = noise_like(x.shape, device, repeat_noise)
+        # no noise when t == 0
+        nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
+        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+
+    def q_posterior(self, x_start, x_t, t):
+        posterior_mean = (
+            extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
+            extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
+        )
+        posterior_variance = extract(self.posterior_variance, t, x_t.shape)
+        posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
+        return posterior_mean, posterior_variance, posterior_log_variance_clipped
+
+
