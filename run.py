@@ -1,6 +1,7 @@
 import os
 import argparse
 import vae
+import diffusion
 from model import Model
 from pytorch_lightning import Trainer
 import yaml
@@ -40,6 +41,9 @@ if name == 'vae':
 elif name=='betavae':
     print('will run beta vae experiment')
     model = vae.beta_vae(**modelconfig['model_params'])
+elif name=='diffusion':
+    print('will run diffusion model experiment')
+    model = diffusion.base_diffusion(**modelconfig['model_params'])
 else:
     raise NotImplementedError
 
@@ -49,44 +53,44 @@ tb_logger =  TensorBoardLogger(save_dir=modelconfig['logging_params']['save_dir'
 # For reproducibility
 # seed_everything(modelconfig['exp_params']['manual_seed'], True)
 
-experiment = Model(model, modelconfig['exp_params'])
-data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus']) != 0)
-data.setup()
+# experiment = Model(model, modelconfig['exp_params'])
+# data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus']) != 0)
+# data.setup()
 
-runner = Trainer(logger=tb_logger,
-                 callbacks=[
-                     LearningRateMonitor(),
-                     ModelCheckpoint(save_top_k=2, 
-                                     dirpath =os.path.join(tb_logger.log_dir , "checkpoints"), 
-                                     monitor= "val_loss",
-                                     save_last= True),
-                 ],
-                 strategy=DDPPlugin(find_unused_parameters=False),
-                 **modelconfig['trainer_params'])
-
-
-Path(f"{tb_logger.log_dir}/Samples").mkdir(exist_ok=True, parents=True)
-Path(f"{tb_logger.log_dir}/Reconstructions").mkdir(exist_ok=True, parents=True)
+# runner = Trainer(logger=tb_logger,
+#                  callbacks=[
+#                      LearningRateMonitor(),
+#                      ModelCheckpoint(save_top_k=2, 
+#                                      dirpath =os.path.join(tb_logger.log_dir , "checkpoints"), 
+#                                      monitor= "val_loss",
+#                                      save_last= True),
+#                  ],
+#                  strategy=DDPPlugin(find_unused_parameters=False),
+#                  **modelconfig['trainer_params'])
 
 
-print(f"======= Training {modelconfig['model_params']['name']} =======")
-runner.fit(experiment, datamodule=data)
+# Path(f"{tb_logger.log_dir}/Samples").mkdir(exist_ok=True, parents=True)
+# Path(f"{tb_logger.log_dir}/Reconstructions").mkdir(exist_ok=True, parents=True)
 
-tb_logger.save()
 
-print(f"======= Evaluating {modelconfig['model_params']['name']} =======")
-t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
-print(t)
+# print(f"======= Training {modelconfig['model_params']['name']} =======")
+# runner.fit(experiment, datamodule=data)
 
-with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
-    f.write('---------test scores---------\n')
-    f.write('inception mean\n')
-    f.write(str(t['inception mean']))
-    f.write('\ninception stdev\n')
-    f.write(str(t['inception stdv']))
-    f.write('\nfrechet\n')
-    f.write(str(t['frechet']))
-    f.write('\n-------hyperparameters-------\n')
-    f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
-    f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
+# tb_logger.save()
+
+# print(f"======= Evaluating {modelconfig['model_params']['name']} =======")
+# t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
+# print(t)
+
+# with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
+#     f.write('---------test scores---------\n')
+#     f.write('inception mean\n')
+#     f.write(str(t['inception mean']))
+#     f.write('\ninception stdev\n')
+#     f.write(str(t['inception stdv']))
+#     f.write('\nfrechet\n')
+#     f.write(str(t['frechet']))
+#     f.write('\n-------hyperparameters-------\n')
+#     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
+#     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
 
