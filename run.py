@@ -30,6 +30,8 @@ with open(args.dataconfig, 'r') as file:
     try:
         dataconfig = yaml.safe_load(file)
         modelconfig['model_params']['in_channels'] = dataconfig['in_channels']
+        modelconfig['model_params']['patch_size'] = dataconfig['in_channels']
+        modelconfig['model_params']['num_classes'] = dataconfig['num_classes']
     except yaml.YAMLError as exc:
         print(exc)
 
@@ -78,19 +80,19 @@ runner.fit(experiment, datamodule=data)
 
 tb_logger.save()
 
-# print(f"======= Evaluating {modelconfig['model_params']['name']} =======")
-# t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
-# print(t)
+print(f"======= Evaluating {modelconfig['model_params']['name']} =======")
+t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
+print(t)
 
-# with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
-#     f.write('---------test scores---------\n')
-#     f.write('inception mean\n')
-#     f.write(str(t['inception mean']))
-#     f.write('\ninception stdev\n')
-#     f.write(str(t['inception stdv']))
-#     f.write('\nfrechet\n')
-#     f.write(str(t['frechet']))
-#     f.write('\n-------hyperparameters-------\n')
-#     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
-#     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
+with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
+    f.write('---------test scores---------\n')
+    f.write('inception mean\n')
+    f.write(str(t['inception mean']))
+    f.write('\ninception stdev\n')
+    f.write(str(t['inception stdv']))
+    f.write('\nfrechet\n')
+    f.write(str(t['frechet']))
+    f.write('\n-------hyperparameters-------\n')
+    f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
+    f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
 

@@ -167,6 +167,43 @@ class base_vae(pl.LightningModule):
         scheds.append(scheduler)
         return optims, scheds
 
+class conditional_vae(base_vae):
+    def __init__(self, num_classes: int, img_size: int, in_channels: int, latent_dims: int, hidden_dims: List = None, **kwargs) -> None:
+        self.img_size = img_size
+        in_channels = in_channels + 1 # To account for the extra label channel
+        super().__init__(in_channels, latent_dims, hidden_dims, **kwargs)
+        self.embed_class = nn.Linear(num_classes, img_size * img_size)
+        self.embed_data = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+
+    def forward(self, input: Tensor, **kwargs) -> List[Tensor]:
+        y = kwargs['labels'].float()
+        embedded_class = self.embed_class(y)
+        embedded_class = embedded_class.view(-1, self.img_size, self.img_size).unsqueeze(1)
+        embedded_input = self.embed_data(input)
+        x = torch.cat([embedded_input, embedded_class], dim=1)
+        mu, log_var = self.encode(x)
+        z = self.reparameterize(mu, log_var)
+        z = torch.cat([z,y], dim=1)
+        return [self.decode(z), input, mu, log_var]
+
+    def loss_function(self, *args, **kwargs) -> dict:
+        recons = args[0]
+        input = args[1]
+        mu = args[2]
+        log_var = args[3]
+        kld_weight = kwargs['M_N'] # Account for the minibatch samples from the dataset
+        recons_loss = F.mse_loss(recons, input)
+        kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
+        loss = recons_loss + kld_weight*kld_loss
+        return {'loss': loss, 'Reconstruction_Loss':recons_loss.detach(), 'KLD':-kld_loss.detach()}
+
+    def sample(self, num_samples: int, current_device: int, **kwargs) -> Tensor:
+        y = kwargs['labels'].float()
+        z = torch.randn(num_samples, self.latent_dim)
+        z = z.to(current_device)
+        z = torch.cat([z,y], dim=1)
+        samples = self.decode(z)
+        return samples
 
 class vanilla_vae(base_vae):
     def __init__(self, in_channels: int, latent_dims: int, hidden_dims: List = None, **kwargs) -> None:

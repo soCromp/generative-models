@@ -10,9 +10,10 @@ import tqdm
 Tensor = TypeVar('torch.tensor')
 
 class base_diffusion(pl.LightningModule):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, num_timesteps: int, **kwargs: Any) -> None:
         super().__init__()
-        self.num_timesteps=1000
+        self.num_timesteps = num_timesteps
+        print(self.num_timesteps)
         self.image_size = 64
         #create model here
         self.net = Unet(dim = 56, dim_mults = (1, 2, 4, 8))
@@ -27,7 +28,7 @@ class base_diffusion(pl.LightningModule):
         noise = torch.randn_like(input)
         t = torch.randint(0, self.num_timesteps, (b,)).long().cuda()
         x = self.gd.q_sample(x_start=input, t=t, noise=noise).cuda()
-        model_out = self.gd.denoise_fn(x, t) #predicting the noise atm
+        model_out = self.net(x, t) #predicting the noise atm
         return model_out, input, noise, t, x
 
     def loss_function(self,
@@ -48,11 +49,16 @@ class base_diffusion(pl.LightningModule):
         :param x: (Tensor) [B x C x H x W]
         :return: (Tensor) [B x C x H x W]
         """
-        f = self.forward(x.cuda())[0]
-        return f
+        b, c, h, w = x.shape
+        noise = torch.randn_like(x)
+        t = torch.randint(0, self.num_timesteps, (b,)).long().cuda()
+        noised = self.gd.q_sample(x_start=x, t=t, noise=noise) #image with added noise
+        model_out = self.net(noised, t) #prediction of the noise
+        res = self.gd.predict_start_from_noise(noised, t = t, noise = model_out)
+        return (res+1)*0.5
 
     def configure_optimizers(self, params):
-        return super().configure_optimizers()
+        return self.net.configure_optimizers(params)
 
 
 def default(val, d):
@@ -306,7 +312,7 @@ class Unet(pl.LightningModule):
         return self.final_conv(x)
 
     def configure_optimizers(self, params):
-        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = optim.Adam(self.parameters(), lr=params['LR'])
         return [optimizer]
 
 def extract(a, t, x_shape):
@@ -396,6 +402,65 @@ class GaussianDiffusion(pl.LightningModule):
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
 
+    def predict_start_from_noise(self, x_t, t, noise):
+        return (
+            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
+            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+        )
+
+    def q_posterior(self, x_start, x_t, t):
+        posterior_mean = (
+            extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
+            extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
+        )
+        posterior_variance = extract(self.posterior_variance, t, x_t.shape)
+        posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
+        return posterior_mean, posterior_variance, posterior_log_variance_clipped
+
+    def p_mean_variance(self, x, t, clip_denoised: bool):
+        model_output = self.denoise_fn(x, t)
+
+        if self.objective == 'pred_noise':
+            x_start = self.predict_start_from_noise(x, t = t, noise = model_output)
+        elif self.objective == 'pred_x0':
+            x_start = model_output
+        else:
+            raise ValueError(f'unknown objective {self.objective}')
+
+        if clip_denoised:
+            x_start.clamp_(-1., 1.)
+
+        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start = x_start, x_t = x, t = t)
+        return model_mean, posterior_variance, posterior_log_variance
+
+    @torch.no_grad()
+    def p_sample(self, x, t, clip_denoised=True):
+        b, *_, device = *x.shape, x.device
+        model_mean, _, model_log_variance = self.p_mean_variance(x=x, t=t, clip_denoised=clip_denoised)
+        noise = torch.randn_like(x)
+        # no noise when t == 0
+        nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
+        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+
+    @torch.no_grad()
+    def p_sample_loop(self, shape):
+        device = self.betas.device
+
+        b = shape[0]
+        img = torch.randn(shape, device=device)
+
+        for i in reversed(range(0, self.num_timesteps)):
+            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long))
+
+        img = (img + 1) * 0.5
+        return img
+
+    @torch.no_grad()
+    def sample(self, batch_size = 16):
+        image_size = self.image_size
+        channels = self.channels
+        return self.p_sample_loop((batch_size, channels, image_size, image_size))
+
     def q_sample(self, x_start, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
@@ -403,6 +468,15 @@ class GaussianDiffusion(pl.LightningModule):
             extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
+
+    @property
+    def loss_fn(self):
+        if self.loss_type == 'l1':
+            return F.l1_loss
+        elif self.loss_type == 'l2':
+            return F.mse_loss
+        else:
+            raise ValueError(f'invalid loss type {self.loss_type}')
 
     def p_losses(self, x_start, t, noise = None):
         b, c, h, w = x_start.shape
@@ -418,7 +492,7 @@ class GaussianDiffusion(pl.LightningModule):
         else:
             raise ValueError(f'unknown objective {self.objective}')
 
-        loss = F.l1_loss(model_out, target)
+        loss = self.loss_fn(model_out, target)
         return loss
 
     def forward(self, img, *args, **kwargs):
@@ -426,47 +500,6 @@ class GaussianDiffusion(pl.LightningModule):
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
-        img = img*2-1
+        img = img*2 - 1
         return self.p_losses(img, t, *args, **kwargs)
-
-    @torch.no_grad()
-    def sample(self, batch_size = 16):
-        image_size = self.image_size
-        channels = self.channels
-        shape = (batch_size, channels, image_size, image_size)
-        img = torch.randn(shape)
-
-        # for i in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
-        for i in reversed(range(0, self.num_timesteps)):
-            img = self.p_sample(img, torch.full((batch_size,), i, dtype=torch.long))
-
-        img = (img + 1) * 0.5
-        return img
-
-    @torch.no_grad()
-    def p_sample(self, x, t, clip_denoised=True, repeat_noise=False):
-        x = x.cuda()
-        t = t.cuda()
-        b, *_, device = *x.shape, x.device
-        model_output = self.denoise_fn(x, t)
-        x_start = (
-            extract(self.sqrt_recip_alphas_cumprod, t, x.shape) * x -
-            extract(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * model_output
-        )
-        x_start.clamp_(-1., 1.)
-        model_mean, _, model_log_variance = self.q_posterior(x_start = x_start, x_t = x, t = t)
-        noise = noise_like(x.shape, device, repeat_noise)
-        # no noise when t == 0
-        nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
-        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
-
-    def q_posterior(self, x_start, x_t, t):
-        posterior_mean = (
-            extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
-            extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
-        )
-        posterior_variance = extract(self.posterior_variance, t, x_t.shape)
-        posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
-        return posterior_mean, posterior_variance, posterior_log_variance_clipped
-
 
