@@ -18,7 +18,8 @@ class Model(pl.LightningModule):
 
     def __init__(self,
                  model,
-                 params: dict) -> None:
+                 params: dict,
+                 metrics=True) -> None:
         super(Model, self).__init__()
 
         self.model = model

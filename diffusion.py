@@ -1,3 +1,4 @@
+from numpy import dtype
 import torch
 from torch import nn, optim
 import torch.nn.functional as F
@@ -49,13 +50,24 @@ class base_diffusion(pl.LightningModule):
         :param x: (Tensor) [B x C x H x W]
         :return: (Tensor) [B x C x H x W]
         """
+        return self.decode(self.encode(x))
+
+    def encode(self, x:Tensor, **kwargs) -> Tensor:
         b, c, h, w = x.shape
         noise = torch.randn_like(x)
-        t = torch.randint(0, self.num_timesteps, (b,)).long().cuda()
+        t = torch.Tensor(b*[self.gd.num_timesteps-1]).long().cuda()
         noised = self.gd.q_sample(x_start=x, t=t, noise=noise) #image with added noise
-        model_out = self.net(noised, t) #prediction of the noise
-        res = self.gd.predict_start_from_noise(noised, t = t, noise = model_out)
-        return (res+1)*0.5
+        return noised
+
+    def decode(self, x, **kwargs) -> Tensor: #x is what's returned by encode method above
+        # self.gd.p_mean_variance()
+        # model_out = self.net(x, t) #prediction of the noise
+        # res = self.gd.predict_start_from_noise(x, t = t, noise = model_out)
+        # return (res+1)*0.5
+        res = self.gd.p_sample_loop(x)
+        print(type(res), res.dtype, res.shape)
+        return res
+
 
     def configure_optimizers(self, params):
         return self.net.configure_optimizers(params)
@@ -443,23 +455,21 @@ class GaussianDiffusion(pl.LightningModule):
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, shape):
+    def p_sample_loop(self, input): #input noise from layer T
         device = self.betas.device
-
-        b = shape[0]
-        img = torch.randn(shape, device=device)
+        b = input.shape[0]
 
         for i in reversed(range(0, self.num_timesteps)):
-            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long))
+            img = self.p_sample(input, torch.full((b,), i, device=device, dtype=torch.long))
 
         img = (img + 1) * 0.5
         return img
 
     @torch.no_grad()
     def sample(self, batch_size = 16):
-        image_size = self.image_size
-        channels = self.channels
-        return self.p_sample_loop((batch_size, channels, image_size, image_size))
+        shape = (batch_size, self.channels, self.image_size, self.image_size)
+        input = torch.randn(shape, device=self.betas.device)
+        return self.p_sample_loop(input)
 
     def q_sample(self, x_start, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))

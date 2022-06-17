@@ -59,6 +59,12 @@ experiment = Model(model, modelconfig['exp_params'])
 data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus']) != 0)
 data.setup()
 
+Path(tb_logger.log_dir).mkdir(parents=True, exist_ok=True)
+with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
+    f.write('\n-------hyperparameters-------\n')
+    f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
+    f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
+
 runner = Trainer(logger=tb_logger,
                  callbacks=[
                      LearningRateMonitor(),
@@ -84,7 +90,7 @@ print(f"======= Evaluating {modelconfig['model_params']['name']} =======")
 t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
 print(t)
 
-with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
+with open(tb_logger.log_dir+'/testresult.txt', 'a') as f:
     f.write('---------test scores---------\n')
     f.write('inception mean\n')
     f.write(str(t['inception mean']))
@@ -92,7 +98,3 @@ with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
     f.write(str(t['inception stdv']))
     f.write('\nfrechet\n')
     f.write(str(t['frechet']))
-    f.write('\n-------hyperparameters-------\n')
-    f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
-    f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
-
