@@ -61,11 +61,12 @@ data.setup()
 
 Path(tb_logger.log_dir).mkdir(parents=True, exist_ok=True)
 with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
-    f.write('\n-------hyperparameters-------\n')
+    f.write('-------hyperparameters-------\n')
     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
 
 runner = Trainer(logger=tb_logger,
+                log_every_n_steps=1,
                  callbacks=[
                      LearningRateMonitor(),
                      ModelCheckpoint(save_top_k=2, 
@@ -86,15 +87,19 @@ runner.fit(experiment, datamodule=data)
 
 tb_logger.save()
 
-print(f"======= Evaluating {modelconfig['model_params']['name']} =======")
+print(f"======= Validating {modelconfig['model_params']['name']} =======")
+v =runner.validate(ckpt_path="best", dataloaders=data.val_dataloader())[0]
+print(v)
+
+print(f"======= Testing {modelconfig['model_params']['name']} =======")
 t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
 print(t)
 
+tb_logger.save()
+
 with open(tb_logger.log_dir+'/testresult.txt', 'a') as f:
     f.write('---------test scores---------\n')
-    f.write('inception mean\n')
-    f.write(str(t['inception mean']))
-    f.write('\ninception stdev\n')
-    f.write(str(t['inception stdv']))
-    f.write('\nfrechet\n')
-    f.write(str(t['frechet']))
+    f.write('metric\t\t\tval\t\t\t\t\ttest\n')
+    f.write(f'inception mean\t{v["val_inception_mean"]}\t\t{t["test_inception_mean"]}\n')
+    f.write(f'inception stdev\t{v["val_inception_stdv"]}\t{t["test_inception_stdv"]}\n')
+    f.write(f'frechet\t\t\t{v["val_frechet"]}\t\t{t["test_frechet"]}\n')

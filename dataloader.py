@@ -163,13 +163,31 @@ class Dataset(LightningDataModule):
 
         if self.num_samples > 0:
             # generate random list and take top num_samples values as 1, all others as 0. These are S0 indices
-            randy = torch.rand(size=(len(self.train_dataset, )))
-            self.indicesS0 = torch.zeros(size=(len(self.train_dataset)))
-            self.indicesS0[torch.topk(randy, self.num_samples)] = 1 #one-hot
+            randy = torch.rand(size=(len(self.train_dataset_all), ))
+            self.indicesS0 = torch.zeros(size=(len(self.train_dataset_all), ))
+            indices = torch.topk(randy, self.num_samples)[1] #actual index numbers
+            self.indicesS0[indices] = 1 #one-hot
+            # self.indicesS0.nonzero(as_tuple=True)[0] #to recover the index numbers off the one-hot
 
-            self.S0 = torch.utils.data.Subset(self.train_dataset_all, self.indicesS0.nonzero(as_tuple=True).tolist())
+            self.S0 = torch.utils.data.Subset(self.train_dataset_all, indices)
             self.train_dataset = self.S0 #initially just use S0
-            print('using random S0 subset consisting of', len(self.train_dataset), 'training examples')
+        else: self.train_dataset = self.train_dataset_all
+
+    def v_update(self, v, k):
+        """Remove any old S1 points from training, choose the top k points from the S1 set via criteria v (v is list of numbers/scores),
+        add these points to the training set and then return an updated train dataloader"""
+        self.S1(v, k)
+        self.train_dataset = torch.utils.data.ConcatDataset([self.S0, self.S1selected])
+        return self.train_dataloader()
+
+    def S1(self, v, k):
+        # make a list with S0 indices' elements set to -Inf, all others by 1. Multiply by random numbers and choose top k to get 
+        # indices of S1 to add to S0
+        vpick = (self.indicesS0 * -101) + 1
+        vpick = vpick * v
+        self.indicesS1 = torch.zeros(size=(len(self.train_dataset)))
+        self.indicesS1[torch.topk(vpick, k)] = 1 #one-hot
+        self.S1selected = torch.utils.data.Subset(self.train_dataset_all, self.indicesS1.nonzero(as_tuple=True).tolist())
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -197,42 +215,3 @@ class Dataset(LightningDataModule):
             shuffle=False,
             pin_memory=self.pin_memory,
         )
-
-
-class superdata(LightningDataModule):
-    """The data is comprised of two sets, S_0 and S_1. S_0 is all points currently available
-    to model training and S_1 is points that are not currently available"""
-
-    def __init__(
-        self,
-        data_name: str,
-        data_path: str,
-        train_batch_size: int = 8,
-        val_batch_size: int = 8,
-        num_samples: int = 0, #0=use full dataset size. S0 size
-        S1: bool = False, #whether to add additional points from S1
-        patch_size: Union[int, Sequence[int]] = (256, 256),
-        num_workers: int = 0,
-        pin_memory: bool = False,
-        **kwargs
-    ):
-        super().__init__()
-        
-        self.name = data_name
-        self.data_dir = data_path
-        self.train_batch_size = train_batch_size
-        self.val_batch_size = val_batch_size
-        self.num_samples = num_samples
-        self.patch_size = patch_size
-        self.num_workers = num_workers
-        self.pin_memory = pin_memory #whether to use GPU
-
-        self.data = Dataset(data_name, data_path, train_batch_size, val_batch_size, 0, patch_size, num_workers, pin_memory)
-
-    def setup(self, stage: Optional[str] = None) -> None:
-        self.data.setup()
-        
-        
-        # make another list with S0 indices' elements set to -Inf, all others by 1. Multiply by random numbers and choose top k to get 
-        # indices of S1 to add to S0
- 

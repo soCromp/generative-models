@@ -49,8 +49,7 @@ class Model(pl.LightningModule):
                                               optimizer_idx=optimizer_idx,
                                               batch_idx = batch_idx)
 
-        self.log_dict({key: val.item() for key, val in train_loss.items()}, sync_dist=True)
-
+        self.log_dict({f"train_{key}": val.item() for key, val in train_loss.items()}, sync_dist=True, prog_bar=True)
         return train_loss['loss']
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
@@ -60,7 +59,7 @@ class Model(pl.LightningModule):
 
         results = self.forward(real_img, labels = labels, optimizer_idx=optimizer_idx)
         val_loss = self.model.loss_function(*results,
-                                            M_N = 1.0, #real_img.shape[0]/ self.num_val_imgs,
+                                            kld_weight = 1.0, #real_img.shape[0]/ self.num_val_imgs, #for VAEs
                                             optimizer_idx = optimizer_idx,
                                             batch_idx = batch_idx)
 
@@ -75,12 +74,14 @@ class Model(pl.LightningModule):
         samples = samples*255
         self.inception.update(samples.type(torch.uint8))
         imean, istd = self.inception.compute()
-        self.log('inception mean', imean.item())
-        self.log('inception stdv', istd.item())
+        self.log('val_inception_mean', imean.item())
+        self.log('val_inception_stdv', istd.item())
 
         self.fid.update(recons.type(torch.uint8), real=False)
         self.fid.update(origs.type(torch.uint8), real=True)
-        self.log('frechet', self.fid.compute().item())
+        self.log('val_frechet', self.fid.compute().item())
+
+        # self.trainer.train_dataloaders[0] #https://pytorch-lightning.readthedocs.io/en/stable/guides/data.html#accessing-dataloaders-within-lightningmodule
 
 
     def test_step(self, batch, batch_idx) -> None:
@@ -96,9 +97,9 @@ class Model(pl.LightningModule):
         # print('on_test_epoch_end')
         imean, istd = self.inception.compute()
         frechet = self.fid.compute().item()
-        self.log('inception mean', imean.item())
-        self.log('inception stdv', istd.item())
-        self.log('frechet', self.fid.compute().item())
+        self.log('test_inception_mean', imean.item())
+        self.log('test_inception_stdv', istd.item())
+        self.log('test_frechet', self.fid.compute().item())
 
 
     def sample_images(self, tofile=True, num_samples=144, orig=False):
