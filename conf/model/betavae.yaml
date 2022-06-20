@@ -1,6 +1,6 @@
 model_params:
   name: 'betavae'
-  latent_dims: 16
+  latent_dims: 8
   loss_type: 'B'
   gamma: 10.0
   max_capacity: 25

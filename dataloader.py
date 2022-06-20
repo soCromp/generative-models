@@ -8,7 +8,6 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import CelebA, MNIST
-import zipfile
 
 
 # Add your custom dataset class here
@@ -34,7 +33,6 @@ class MyCelebA(CelebA):
     
     def _check_integrity(self) -> bool:
         return True
-    
     
 
 class OxfordPets(Dataset):
@@ -63,6 +61,7 @@ class OxfordPets(Dataset):
         
         return img, 0.0 # dummy datat to prevent breaking 
 
+
 class Dataset(LightningDataModule):
     """
     PyTorch Lightning data module 
@@ -84,7 +83,8 @@ class Dataset(LightningDataModule):
         data_path: str,
         train_batch_size: int = 8,
         val_batch_size: int = 8,
-        num_samples: int = 0, #0=use full dataset size
+        num_samples: int = 0, #0=use full dataset size. Num points in S0
+        S1: bool = False, #whether to add additional points from S1
         patch_size: Union[int, Sequence[int]] = (256, 256),
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -97,6 +97,7 @@ class Dataset(LightningDataModule):
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
         self.num_samples = num_samples
+        self.S1 = S1
         self.patch_size = patch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
@@ -113,7 +114,7 @@ class Dataset(LightningDataModule):
                                                     transforms.ToTensor(),
                                                       transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
 
-                self.train_dataset = OxfordPets(
+                self.train_dataset_all = OxfordPets(
                     self.data_dir,
                     split='train',
                     transform=train_transforms,
@@ -137,7 +138,7 @@ class Dataset(LightningDataModule):
                                                 transforms.Resize(self.patch_size),
                                                 transforms.ToTensor(),])
             
-            self.train_dataset = MyCelebA(
+            self.train_dataset_all = MyCelebA(
                 self.data_dir,
                 split='train',
                 transform=train_transforms,
@@ -157,13 +158,18 @@ class Dataset(LightningDataModule):
             trans = transforms.Compose([transforms.Resize(self.patch_size),
                                         transforms.Grayscale(3),
                                         transforms.ToTensor() ])
-            self.train_dataset = MNIST(self.data_dir, train=True, transform=trans, download=True)
+            self.train_dataset_all = MNIST(self.data_dir, train=True, transform=trans, download=True)
             self.val_dataset = MNIST(self.data_dir, train=False, transform=trans, download=True)
 
         if self.num_samples > 0:
-            self.train_dataset = torch.utils.data.random_split(self.train_dataset, 
-                [self.num_samples, len(self.train_dataset)-self.num_samples])[0]
-            print('using random subset consisting of', len(self.train_dataset), 'training examples')
+            # generate random list and take top num_samples values as 1, all others as 0. These are S0 indices
+            randy = torch.rand(size=(len(self.train_dataset, )))
+            self.indicesS0 = torch.zeros(size=(len(self.train_dataset)))
+            self.indicesS0[torch.topk(randy, self.num_samples)] = 1 #one-hot
+
+            self.S0 = torch.utils.data.Subset(self.train_dataset_all, self.indicesS0.nonzero(as_tuple=True).tolist())
+            self.train_dataset = self.S0 #initially just use S0
+            print('using random S0 subset consisting of', len(self.train_dataset), 'training examples')
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -191,4 +197,42 @@ class Dataset(LightningDataModule):
             shuffle=False,
             pin_memory=self.pin_memory,
         )
-     
+
+
+class superdata(LightningDataModule):
+    """The data is comprised of two sets, S_0 and S_1. S_0 is all points currently available
+    to model training and S_1 is points that are not currently available"""
+
+    def __init__(
+        self,
+        data_name: str,
+        data_path: str,
+        train_batch_size: int = 8,
+        val_batch_size: int = 8,
+        num_samples: int = 0, #0=use full dataset size. S0 size
+        S1: bool = False, #whether to add additional points from S1
+        patch_size: Union[int, Sequence[int]] = (256, 256),
+        num_workers: int = 0,
+        pin_memory: bool = False,
+        **kwargs
+    ):
+        super().__init__()
+        
+        self.name = data_name
+        self.data_dir = data_path
+        self.train_batch_size = train_batch_size
+        self.val_batch_size = val_batch_size
+        self.num_samples = num_samples
+        self.patch_size = patch_size
+        self.num_workers = num_workers
+        self.pin_memory = pin_memory #whether to use GPU
+
+        self.data = Dataset(data_name, data_path, train_batch_size, val_batch_size, 0, patch_size, num_workers, pin_memory)
+
+    def setup(self, stage: Optional[str] = None) -> None:
+        self.data.setup()
+        
+        
+        # make another list with S0 indices' elements set to -Inf, all others by 1. Multiply by random numbers and choose top k to get 
+        # indices of S1 to add to S0
+ 
