@@ -19,11 +19,14 @@ class Model(pl.LightningModule):
     def __init__(self,
                  model,
                  params: dict,
-                 metrics=True) -> None:
+                 S1func='random') -> None:
         super(Model, self).__init__()
 
         self.model = model
         self.params = params
+        S1funcs = {'random': self.randomS1, 'cluster': self.clusterS1, 'frechet': self.frechetS1, 
+                    'inception': self.inceptionS1, 'loss': self.lossS1}
+        self.S1func = S1funcs[S1func]
         self.inception = InceptionScore()
         self.fid = FrechetInceptionDistance()
         self.curr_device = None
@@ -51,6 +54,29 @@ class Model(pl.LightningModule):
 
         self.log_dict({f"train_{key}": val.item() for key, val in train_loss.items()}, sync_dist=True, prog_bar=True)
         return train_loss['loss']
+
+    def randomS1(self):
+        return torch.rand((len(self.trainer.datamodule.train_dataset_all), ))
+
+    def clusterS1(self):
+        return NotImplementedError
+        
+    def frechetS1(self):
+        return NotImplementedError
+
+    def inceptionS1(self):
+        return NotImplementedError
+
+    def lossS1(self):
+        return NotImplementedError
+
+    def on_train_epoch_end(self) -> None:
+        #https://pytorch-lightning.readthedocs.io/en/stable/guides/data.html#accessing-dataloaders-within-lightningmodule
+        v = self.S1func()
+        self.trainer.datamodule.v_update(v, len(self.trainer.train_dataloader.dataset)//2) # = self.trainer.datamodule.v_update(randy, 100)
+        self.trainer.reset_train_dataloader(self)
+        print(len(self.trainer.train_dataloader.dataset))
+        # self.trainer.train_dataloaders[0] 
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
         # print('validation step')
@@ -80,8 +106,6 @@ class Model(pl.LightningModule):
         self.fid.update(recons.type(torch.uint8), real=False)
         self.fid.update(origs.type(torch.uint8), real=True)
         self.log('val_frechet', self.fid.compute().item())
-
-        # self.trainer.train_dataloaders[0] #https://pytorch-lightning.readthedocs.io/en/stable/guides/data.html#accessing-dataloaders-within-lightningmodule
 
 
     def test_step(self, batch, batch_idx) -> None:

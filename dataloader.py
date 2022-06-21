@@ -84,7 +84,7 @@ class Dataset(LightningDataModule):
         train_batch_size: int = 8,
         val_batch_size: int = 8,
         num_samples: int = 0, #0=use full dataset size. Num points in S0
-        S1: bool = False, #whether to add additional points from S1
+        useS1: bool = False, #whether to add additional points from S1
         patch_size: Union[int, Sequence[int]] = (256, 256),
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -97,7 +97,7 @@ class Dataset(LightningDataModule):
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
         self.num_samples = num_samples
-        self.S1 = S1
+        self.useS1 = useS1
         self.patch_size = patch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
@@ -185,9 +185,9 @@ class Dataset(LightningDataModule):
         # indices of S1 to add to S0
         vpick = (self.indicesS0 * -101) + 1
         vpick = vpick * v
-        self.indicesS1 = torch.zeros(size=(len(self.train_dataset)))
-        self.indicesS1[torch.topk(vpick, k)] = 1 #one-hot
-        self.S1selected = torch.utils.data.Subset(self.train_dataset_all, self.indicesS1.nonzero(as_tuple=True).tolist())
+        self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), ))
+        self.indicesS1[torch.topk(vpick, k)[1]] = 1 #one-hot
+        self.S1selected = torch.utils.data.Subset(self.train_dataset_all, self.indicesS1.nonzero(as_tuple=True)[0])
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
