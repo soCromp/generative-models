@@ -68,6 +68,10 @@ class base_vae(pl.LightningModule):
                                 kernel_size=3, padding=1),
                     nn.Tanh())
 
+    def to_latent(self, input: Tensor):
+        mu, log_var = self.encode(input)
+        return self.reparameterize(mu, log_var)
+
     def encode(self, input: Tensor) -> List[Tensor]:
         """
         Encodes the input by passing through the encoder network

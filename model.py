@@ -1,8 +1,9 @@
-import os
 import math
+import os
 import torch
 from torch import optim
 from typing import List, Callable, Union, Any, TypeVar, Tuple
+from yaml import load
 Tensor = TypeVar('torch.tensor')
 from utils import data_loader
 import pytorch_lightning as pl
@@ -12,21 +13,22 @@ from torchvision.datasets import CelebA
 from torch.utils.data import DataLoader
 from torchmetrics.image.inception import InceptionScore
 from torchmetrics.image.fid import FrechetInceptionDistance
+import numpy as np
+from sklearn.cluster import MiniBatchKMeans
+import tqdm
 
 
 class Model(pl.LightningModule):
 
     def __init__(self,
                  model,
-                 params: dict,
-                 S1func='random') -> None:
+                 params: dict,) -> None:
         super(Model, self).__init__()
-
         self.model = model
         self.params = params
         S1funcs = {'random': self.randomS1, 'cluster': self.clusterS1, 'frechet': self.frechetS1, 
-                    'inception': self.inceptionS1, 'loss': self.lossS1}
-        self.S1func = S1funcs[S1func]
+                    'inception': self.inceptionS1, 'loss': self.lossS1, 'none': None}
+        self.S1func = S1funcs[self.params['S1func']]
         self.inception = InceptionScore()
         self.fid = FrechetInceptionDistance()
         self.curr_device = None
@@ -59,7 +61,27 @@ class Model(pl.LightningModule):
         return torch.rand((len(self.trainer.datamodule.train_dataset_all), ))
 
     def clusterS1(self):
-        return NotImplementedError
+        batch_size = self.trainer.datamodule.train_batch_size
+        kmeans = MiniBatchKMeans(n_clusters=5, random_state=2, batch_size=batch_size)
+        loader = self.trainer.datamodule.train_all_dataloader()
+        latents = []
+        for batch, i in loader:
+            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
+            kmeans.partial_fit(latent)
+            latents.append(latent)
+
+        predbatches = [] #will be list of batch-size ndarray vectors
+        for i, l in enumerate(latents):
+            predbatches.append(kmeans.predict(l))
+
+        # concatenate preds and find least common group
+        predictions = np.concatenate(predbatches)
+        unique, counts = np.unique(predictions, return_counts=True)
+        rarest = np.argmin(counts) #index (=group id) of rarest group
+        
+        v = torch.zeros((len(loader.dataset) ,))
+        v[predictions==rarest] = 1
+        return v
         
     def frechetS1(self):
         return NotImplementedError
@@ -72,11 +94,11 @@ class Model(pl.LightningModule):
 
     def on_train_epoch_end(self) -> None:
         #https://pytorch-lightning.readthedocs.io/en/stable/guides/data.html#accessing-dataloaders-within-lightningmodule
-        v = self.S1func()
-        self.trainer.datamodule.v_update(v, len(self.trainer.train_dataloader.dataset)//2) # = self.trainer.datamodule.v_update(randy, 100)
-        self.trainer.reset_train_dataloader(self)
-        print(len(self.trainer.train_dataloader.dataset))
-        # self.trainer.train_dataloaders[0] 
+        if self.S1func is not None:
+            v = self.S1func()
+            self.trainer.datamodule.v_update(v, 20) # = self.trainer.datamodule.v_update(randy, 100)
+            self.trainer.reset_train_dataloader(self)
+            print(len(self.trainer.train_dataloader.dataset))
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
         # print('validation step')

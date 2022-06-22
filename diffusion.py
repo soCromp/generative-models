@@ -45,7 +45,7 @@ class base_diffusion(pl.LightningModule):
                current_device: int, **kwargs) -> Tensor:
         return self.gd.sample(num_samples)
 
-    def generate(self, x: Tensor, **kwargs) -> Tensor: #TODO
+    def generate(self, x: Tensor, **kwargs) -> Tensor:
         # return self.gd.sample(144)
         """
         Given an input image x, returns the reconstructed image
@@ -53,6 +53,9 @@ class base_diffusion(pl.LightningModule):
         :return: (Tensor) [B x C x H x W]
         """
         return self.decode(self.encode(x))
+
+    def to_latent(self, x: Tensor):
+        return self.encode(x)
 
     def encode(self, x:Tensor, **kwargs) -> Tensor:
         b, c, h, w = x.shape
@@ -62,10 +65,6 @@ class base_diffusion(pl.LightningModule):
         return noised
 
     def decode(self, x, **kwargs) -> Tensor: #x is what's returned by encode method above
-        # self.gd.p_mean_variance()
-        # model_out = self.net(x, t) #prediction of the noise
-        # res = self.gd.predict_start_from_noise(x, t = t, noise = model_out)
-        # return (res+1)*0.5
         res = self.gd.p_sample_loop(x)
         print(type(res), res.dtype, res.shape)
         return res
