@@ -35,10 +35,14 @@ class base_diffusion(pl.LightningModule):
 
     def loss_function(self,
                       *args,
+                      batch=True,
                       **kwargs) -> dict:
         output = args[0]
         noise = args[2]
-        return {'loss': F.l1_loss(output, noise)}
+        if batch:
+            return {'loss': F.l1_loss(output, noise)}
+        else:
+            return {'loss': F.l1_loss(output, noise, reduction='none').mean(dim=[1,2,3])}
 
     def sample(self,
                num_samples:int,
@@ -54,8 +58,11 @@ class base_diffusion(pl.LightningModule):
         """
         return self.decode(self.encode(x))
 
-    def to_latent(self, x: Tensor):
-        return self.encode(x)
+    def to_latent(self, x: Tensor): 
+        l = self.encode(x)
+        batchsize = l.shape[0]
+        size = l.shape[1]*l.shape[2]*l.shape[3]
+        return l.reshape([batchsize, size]) #since clustering needs each point to be vecotr-shaped
 
     def encode(self, x:Tensor, **kwargs) -> Tensor:
         b, c, h, w = x.shape
@@ -66,7 +73,6 @@ class base_diffusion(pl.LightningModule):
 
     def decode(self, x, **kwargs) -> Tensor: #x is what's returned by encode method above
         res = self.gd.p_sample_loop(x)
-        print(type(res), res.dtype, res.shape)
         return res
 
 

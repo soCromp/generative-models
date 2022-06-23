@@ -49,7 +49,7 @@ elif name=='diffusion':
 else:
     raise NotImplementedError
 
-tb_logger =  TensorBoardLogger(save_dir=modelconfig['logging_params']['save_dir'],
+tb_logger =  TensorBoardLogger(save_dir=os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name']),
                                name=modelconfig['model_params']['name'],)
 
 # For reproducibility
@@ -90,15 +90,15 @@ print(f"======= Validating {modelconfig['model_params']['name']} =======")
 v =runner.validate(ckpt_path="best", dataloaders=data.val_dataloader())[0]
 print(v)
 
-print(f"======= Testing {modelconfig['model_params']['name']} =======")
-t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
-print(t)
+# print(f"======= Testing {modelconfig['model_params']['name']} =======")
+# t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
+# print(t)
 
-tb_logger.save()
+# tb_logger.save()
 
-with open(tb_logger.log_dir+'/testresult.txt', 'a') as f:
-    f.write('---------test scores---------\n')
-    f.write('metric\t\t\tval\t\t\t\t\ttest\n')
-    f.write(f'inception mean\t{v["val_inception_mean"]}\t\t{t["test_inception_mean"]}\n')
-    f.write(f'inception stdev\t{v["val_inception_stdv"]}\t{t["test_inception_stdv"]}\n')
-    f.write(f'frechet\t\t\t{v["val_frechet"]}\t\t{t["test_frechet"]}\n')
+# with open(tb_logger.log_dir+'/testresult.txt', 'a') as f:
+#     f.write('---------test scores---------\n')
+#     f.write('metric\t\t\tval\t\t\t\t\ttest\n')
+#     f.write(f'inception mean\t{v["val_inception_mean"]}\t\t{t["test_inception_mean"]}\n')
+#     f.write(f'inception stdev\t{v["val_inception_stdv"]}\t{t["test_inception_stdv"]}\n')
+#     f.write(f'frechet\t\t\t{v["val_frechet"]}\t\t{t["test_frechet"]}\n')

@@ -216,6 +216,15 @@ class Dataset(LightningDataModule):
             shuffle=False,
             pin_memory=self.pin_memory,
         )
+
+    def sample_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
+        return DataLoader(
+            self.val_dataset,
+            batch_size=144,
+            num_workers=self.num_workers,
+            shuffle=False,
+            pin_memory=self.pin_memory,
+        )
     
     def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
         return DataLoader(
