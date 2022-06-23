@@ -213,7 +213,7 @@ class vanilla_vae(base_vae):
     def __init__(self, in_channels: int, latent_dims: int, hidden_dims: List = None, **kwargs) -> None:
         super().__init__(in_channels, latent_dims, hidden_dims, **kwargs)
 
-    def loss_function(self, *args, **kwargs) -> dict:
+    def loss_function(self, *args, batch=True, **kwargs) -> dict: #batch true is find avg loss. batch false is loss for each point alone
         # return super().loss_function(*args, **kwargs)
         recons = args[0]
         input = args[1]
@@ -221,10 +221,14 @@ class vanilla_vae(base_vae):
         log_var = args[3]
 
         kld_weight = kwargs['kld_weight'] # Account for the minibatch samples from the dataset
-        recons_loss =F.mse_loss(recons, input)
+        if batch:
+            recons_loss =F.mse_loss(recons, input)
+        else:
+            recons_loss =F.mse_loss(recons, input, reduction='none').mean(dim=[1,2,3])
 
-
-        kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
+        kld_loss = -0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1)
+        if batch:
+            kld_loss = torch.mean(kld_loss, dim = 0)
 
         loss = recons_loss + kld_weight * kld_loss
         return {'loss': loss, 'Reconstruction_Loss':recons_loss.detach(), 'KLD':-kld_loss.detach()}

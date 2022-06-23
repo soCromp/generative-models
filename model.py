@@ -26,7 +26,7 @@ class Model(pl.LightningModule):
         super(Model, self).__init__()
         self.model = model
         self.params = params
-        S1funcs = {'random': self.randomS1, 'cluster': self.clusterS1, 'frechet': self.frechetS1, 
+        S1funcs = {'random': self.randomS1, 'rarest': self.rarestS1, 'frechet': self.frechetS1, 
                     'inception': self.inceptionS1, 'loss': self.lossS1, 'none': None}
         self.S1func = S1funcs[self.params['S1func']]
         self.inception = InceptionScore()
@@ -60,37 +60,79 @@ class Model(pl.LightningModule):
     def randomS1(self):
         return torch.rand((len(self.trainer.datamodule.train_dataset_all), ))
 
-    def clusterS1(self):
+    def rarestS1(self):
+        fit_loader = self.trainer.datamodule.train_dataloader()
+        pred_loader = self.trainer.datamodule.train_all_dataloader()
         batch_size = self.trainer.datamodule.train_batch_size
         kmeans = MiniBatchKMeans(n_clusters=5, random_state=2, batch_size=batch_size)
-        loader = self.trainer.datamodule.train_all_dataloader()
-        latents = []
-        for batch, i in loader:
+        
+        metrics = []
+        for batch, i in fit_loader:
             latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
             kmeans.partial_fit(latent)
-            latents.append(latent)
 
         predbatches = [] #will be list of batch-size ndarray vectors
-        for i, l in enumerate(latents):
-            predbatches.append(kmeans.predict(l))
+        for batch, i in pred_loader:
+            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
+            predbatches.append(kmeans.predict(latent))
 
-        # concatenate preds and find least common group
-        predictions = np.concatenate(predbatches)
-        unique, counts = np.unique(predictions, return_counts=True)
+        # concatenate preds 
+        predictions = np.concatenate(predbatches) #cluster of each point
+        _, counts = np.unique(predictions[self.trainer.datamodule.indicesS0==1], return_counts=True)
         rarest = np.argmin(counts) #index (=group id) of rarest group
         
-        v = torch.zeros((len(loader.dataset) ,))
+        v = torch.zeros((len(pred_loader.dataset) ,))
         v[predictions==rarest] = 1
         return v
-        
+
     def frechetS1(self):
+        loader = self.trainer.datamodule.train_all_dataloader()
         return NotImplementedError
 
     def inceptionS1(self):
         return NotImplementedError
 
     def lossS1(self):
-        return NotImplementedError
+        fit_loader = self.trainer.datamodule.train_dataloader()
+        pred_loader = self.trainer.datamodule.train_all_dataloader()
+        batch_size = self.trainer.datamodule.train_batch_size
+        numclusters=5
+        kmeans = MiniBatchKMeans(n_clusters=numclusters, random_state=2, batch_size=batch_size)
+        
+        metrics = []
+        for batch, i in fit_loader:
+            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
+            m = self.model.loss_function(*self.model.forward(batch.cuda()), kld_weight = 1.0, batch=False)['loss']
+            metrics.append(m.cpu().detach().numpy())
+            kmeans.partial_fit(latent)
+
+        predbatches = [] #will be list of batch-size ndarray vectors
+        for batch, i in pred_loader:
+            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
+            predbatches.append(kmeans.predict(latent))
+
+        # concatenate preds 
+        predictions = np.concatenate(predbatches) #cluster of each point
+        #get just points in S0 or S1 trained on in this epoch:
+        predictionsS0 = predictions[self.trainer.datamodule.indicesS0+self.trainer.datamodule.indicesS1==1] 
+        df = np.stack([predictionsS0, np.concatenate(metrics)]).T #col0 is cluster and col1 is loss
+        #ensure all clusters have at least one point
+        ids = set(np.unique(df[:, 0]))
+        allids = set(range(numclusters))
+        absent = list(allids - ids)
+        if len(absent)>0:
+            loss = [1e10]*len(absent)
+            a = np.stack([absent, loss]).T
+            df = np.concatenate([df, a])
+
+        dfs = df[df[:, 0].argsort()] #sorting
+        gb = np.split(dfs[:, 1], np.unique(dfs[:, 0], return_index=True)[1][1:]) #"group by": ith elem is list of pts in ith group
+        avgs=np.stack([g.mean() for g in gb]) #average loss of S0 points in the group
+        worst = np.argmax(avgs) #group with highest loss
+        
+        v = torch.zeros((len(pred_loader.dataset) ,))
+        v[predictions==worst] = 1
+        return v
 
     def on_train_epoch_end(self) -> None:
         #https://pytorch-lightning.readthedocs.io/en/stable/guides/data.html#accessing-dataloaders-within-lightningmodule
@@ -98,7 +140,6 @@ class Model(pl.LightningModule):
             v = self.S1func()
             self.trainer.datamodule.v_update(v, 20) # = self.trainer.datamodule.v_update(randy, 100)
             self.trainer.reset_train_dataloader(self)
-            print(len(self.trainer.train_dataloader.dataset))
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
         # print('validation step')

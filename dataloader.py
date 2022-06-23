@@ -167,6 +167,7 @@ class Dataset(LightningDataModule):
             self.indicesS0 = torch.zeros(size=(len(self.train_dataset_all), ))
             indices = torch.topk(randy, self.num_samples)[1] #actual index numbers
             self.indicesS0[indices] = 1 #one-hot
+            self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), )) #init to all zeroes
             # self.indicesS0.nonzero(as_tuple=True)[0] #to recover the index numbers off the one-hot
 
             self.S0 = torch.utils.data.Subset(self.train_dataset_all, indices)

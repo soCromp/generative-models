@@ -4,11 +4,12 @@ Adapted from https://github.com/AntixK/PyTorch-VAE
 Download CelebA from [https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing](https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing) and place it in a ./data directory (MNIST gets downloaded automatically)
 
 ``conda env create -f conda_reqs.yml`` <br/>
+``conda activate py`` <br/>
 ``python run.py -m conf/model/vae.yaml -d conf/data/celeba.yaml``
 
 **Requirements**
-- Conda 4.12
-- Python 3.8.5
+- Conda 4.13
+- Python 3.10
 
 **Files**
 - *run.py*: Specify the model and hyperparameters, it creates, trains and tests the model.
