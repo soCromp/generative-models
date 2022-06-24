@@ -164,7 +164,7 @@ class Dataset(LightningDataModule):
         if self.num_samples > 0:
             # generate random list and take top num_samples values as 1, all others as 0. These are S0 indices
             randy = torch.rand(size=(len(self.train_dataset_all), ))
-            self.indicesS0 = torch.zeros(size=(len(self.train_dataset_all), ))
+            self.indicesS0 = torch.zeros(size=(len(self.train_dataset_all), ), dtype=torch.bool)
             indices = torch.topk(randy, self.num_samples)[1] #actual index numbers
             self.indicesS0[indices] = 1 #one-hot
             self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), )) #init to all zeroes
@@ -184,8 +184,8 @@ class Dataset(LightningDataModule):
     def S1(self, v, k):
         # make a list with S0 indices' elements set to -Inf, all others by 1. Multiply by random numbers and choose top k to get 
         # indices of S1 to add to S0
-        vpick = (self.indicesS0 * -101) + 1
-        vpick = vpick * v
+        vpick = v
+        vpick[self.indicesS0]= -1e25
         self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), ))
         self.indicesS1[torch.topk(vpick, k)[1]] = 1 #one-hot
         self.S1selected = torch.utils.data.Subset(self.train_dataset_all, self.indicesS1.nonzero(as_tuple=True)[0])

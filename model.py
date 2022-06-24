@@ -29,11 +29,13 @@ class Model(pl.LightningModule):
         S1funcs = {'random': self.randomS1, 'rarest': self.rarestS1, 'frechet': self.frechetS1, 
                     'inception': self.inceptionS1, 'loss': self.lossS1, 'none': None}
         self.S1func = S1funcs[self.params['S1func']]
+        self.k = self.params['k']
         if self.params['S1func'] == 'inception':
-            self.train_inception = InceptionScore()
-        self.train_fid = FrechetInceptionDistance(reset_real_features=False)
-        self.val_inception = InceptionScore()
-        self.val_fid = FrechetInceptionDistance(reset_real_features=False)
+            self.train_inception = InceptionScore(feature=64)
+        elif self.params['S1func'] == 'frechet':
+            self.train_fid = FrechetInceptionDistance(feature=64)#, reset_real_features=False)
+        # self.val_inception = InceptionScore(reset_real_features=False)
+        # self.val_fid = FrechetInceptionDistance(reset_real_features=False)
         self.curr_device = None
         self.hold_graph = False
         try:
@@ -133,7 +135,7 @@ class Model(pl.LightningModule):
                 self.train_fid.reset()
 
         v = torch.zeros((len(pred_loader.dataset) ,))
-        print(frech)
+        # print(frech)
         worst = frech.argmax() #group with worst fid
         v[predictions==worst] = 1
         return v
@@ -200,7 +202,8 @@ class Model(pl.LightningModule):
         # concatenate preds 
         predictions = np.concatenate(predbatches) #cluster of each point
         #get just points in S0 or S1 trained on in this epoch:
-        predictionsS0 = predictions[self.trainer.datamodule.indicesS0+self.trainer.datamodule.indicesS1==1] 
+        predictionsS0 = predictions[self.trainer.datamodule.indicesS0+self.trainer.datamodule.indicesS1>0] 
+        # print(predictionsS0.shape, np.concatenate(metrics).shape)
         df = np.stack([predictionsS0, np.concatenate(metrics)]).T #col0 is cluster and col1 is loss
         #ensure all clusters have at least one point
         ids = set(np.unique(df[:, 0]))
@@ -225,7 +228,7 @@ class Model(pl.LightningModule):
         # self.log('train_frechet', self.train_fid.compute().item())
         if self.S1func is not None:
             v = self.S1func()
-            self.trainer.datamodule.v_update(v, 20) 
+            self.trainer.datamodule.v_update(v, self.k) 
             self.trainer.reset_train_dataloader(self)
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
@@ -239,20 +242,20 @@ class Model(pl.LightningModule):
                                             batch_idx = batch_idx)
 
         self.log_dict({f"val_{key}": val.item() for key, val in val_loss.items()}, sync_dist=True)
-        self.val_fid.update(real_img.type(torch.uint8), real=True)
-        self.val_fid.update(results[0].type(torch.uint8), real=False)
+        # self.val_fid.update(real_img.type(torch.uint8), real=True)
+        # self.val_fid.update(results[0].type(torch.uint8), real=False)
 
         
     def on_validation_epoch_end(self) -> None:
         samples = self.sample_images()[1] #saves images to file
         # samples = 255*self.model.sample(128, self.curr_device)
-        self.val_inception.update(samples.type(torch.uint8))
+        # self.val_inception.update(samples.type(torch.uint8))
 
-        imean, istd = self.val_inception.compute()
-        self.log('val_inception_mean', imean.item())
-        self.log('val_inception_stdv', istd.item())
+        # imean, istd = self.val_inception.compute()
+        # self.log('val_inception_mean', imean.item())
+        # self.log('val_inception_stdv', istd.item())
 
-        self.log('val_frechet', self.val_fid.compute().item())
+        # self.log('val_frechet', self.val_fid.compute().item())
 
 
     def on_test_start(self) -> None:
