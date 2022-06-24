@@ -31,9 +31,9 @@ class Model(pl.LightningModule):
         self.S1func = S1funcs[self.params['S1func']]
         if self.params['S1func'] == 'inception':
             self.train_inception = InceptionScore()
-        self.train_fid = FrechetInceptionDistance()
+        self.train_fid = FrechetInceptionDistance(reset_real_features=False)
         self.val_inception = InceptionScore()
-        self.val_fid = FrechetInceptionDistance()
+        self.val_fid = FrechetInceptionDistance(reset_real_features=False)
         self.curr_device = None
         self.hold_graph = False
         try:
@@ -56,8 +56,8 @@ class Model(pl.LightningModule):
                                               batch_idx = batch_idx)
 
         self.log_dict({f"train_{key}": val.item() for key, val in train_loss.items()}, sync_dist=True, prog_bar=True)
-        self.train_fid.update(real_img.type(torch.uint8), real=True)
-        self.train_fid.update(results[0].type(torch.uint8), real=False)
+        # self.train_fid.update(real_img.type(torch.uint8), real=True)
+        # self.train_fid.update(results[0].type(torch.uint8), real=False)
         return train_loss['loss']
 
     def randomS1(self):
@@ -106,6 +106,7 @@ class Model(pl.LightningModule):
         for batch, i in fit_loader:
             latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
             kmeans.partial_fit(latent)
+            # self.train_fid.update(batch.cuda().type(torch.uint8), real=True)
 
         predbatches = [] #will be list of batch-size ndarray vectors
         for batch, i in pred_loader:
@@ -124,12 +125,13 @@ class Model(pl.LightningModule):
                 images, labels = next(iter(dl))
                 results = self.forward(images.cuda(), labels = labels.cuda())
                 self.train_fid.update(images.cuda().type(torch.uint8), real=True)
-                self.train_fid.update(results[1].type(torch.uint8), real=False)
+                self.train_fid.update(results[0].type(torch.uint8), real=False)
                 if images.shape[0] == 1: #because fid only works if you have more than one
                     self.train_fid.update(images.cuda().type(torch.uint8), real=True)
-                    self.train_fid.update(results[1].type(torch.uint8), real=False)
+                    self.train_fid.update(results[0].type(torch.uint8), real=False)
                 frech[g] = self.train_fid.compute().item()
                 self.train_fid.reset()
+
         v = torch.zeros((len(pred_loader.dataset) ,))
         print(frech)
         worst = frech.argmax() #group with worst fid
@@ -155,6 +157,26 @@ class Model(pl.LightningModule):
             latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
             predbatches.append(kmeans.predict(latent))
         predictions = np.concatenate(predbatches) #cluster of each point
+
+        incep = torch.zeros((num_clusters, ))
+        in_train=(self.trainer.datamodule.indicesS0 + self.trainer.datamodule.indicesS1).type(torch.bool)
+        for g in range(num_clusters): #get S0 and training S1 points in this cluster
+            incl = torch.bitwise_and(in_train, torch.tensor(predictions)==g)
+            if incl.sum() == 0: incep[g] = 1e10
+            else:
+                d = torch.utils.data.Subset(pred_loader.dataset, incl.nonzero(as_tuple=True)[0])
+                dl = DataLoader(d, batch_size=int(incl.sum()))
+                images, labels = next(iter(dl))
+                results = self.forward(images.cuda(), labels = labels.cuda())
+                self.train_inception.update(results[0].type(torch.uint8))
+                incep[g] = self.train_inception.compute()[0].item() #[mean, stdv]
+                self.train_inception.reset()
+
+        v = torch.zeros((len(pred_loader.dataset) ,))
+        print(incep)
+        worst = incep.argmax() #group with worst fid
+        v[predictions==worst] = 1
+        return v
 
     def lossS1(self):
         fit_loader = self.trainer.datamodule.train_dataloader()
@@ -200,7 +222,7 @@ class Model(pl.LightningModule):
 
     def on_train_epoch_end(self) -> None:
         #https://pytorch-lightning.readthedocs.io/en/stable/guides/data.html#accessing-dataloaders-within-lightningmodule
-        self.log('train_frechet', self.train_fid.compute().item())
+        # self.log('train_frechet', self.train_fid.compute().item())
         if self.S1func is not None:
             v = self.S1func()
             self.trainer.datamodule.v_update(v, 20) 
@@ -222,7 +244,7 @@ class Model(pl.LightningModule):
 
         
     def on_validation_epoch_end(self) -> None:
-        samples = 255*self.sample_images()[1] #saves images to file
+        samples = self.sample_images()[1] #saves images to file
         # samples = 255*self.model.sample(128, self.curr_device)
         self.val_inception.update(samples.type(torch.uint8))
 
@@ -240,7 +262,7 @@ class Model(pl.LightningModule):
 
     def test_step(self, batch, batch_idx) -> None:
         recons, samples, origs = self.sample_images(batch, tofile=False, num_samples=64)
-        samples = samples*255
+        # samples = samples*255
         self.test_inception.update(samples.type(torch.uint8))
         self.test_fid.update(recons.type(torch.uint8), real=False)
         self.test_fid.update(origs.type(torch.uint8), real=True)
