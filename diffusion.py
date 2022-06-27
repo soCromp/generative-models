@@ -15,7 +15,6 @@ class base_diffusion(pl.LightningModule):
     def __init__(self, num_timesteps: int, **kwargs: Any) -> None:
         super().__init__()
         self.num_timesteps = num_timesteps
-        print(self.num_timesteps)
         self.image_size = 64
         #create model here
         self.net = Unet(dim = 56, dim_mults = (1, 2, 4, 8))

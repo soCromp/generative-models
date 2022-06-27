@@ -49,7 +49,8 @@ elif name=='diffusion':
 else:
     raise NotImplementedError
 
-tb_logger =  TensorBoardLogger(save_dir=os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name']),
+tb_logger =  TensorBoardLogger(save_dir=os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name'],
+                                dataconfig['data_name']),
                                name=modelconfig['model_params']['name'],)
 
 # For reproducibility
