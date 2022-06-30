@@ -12,6 +12,7 @@ exp_params:
   scheduler_gamma: 0.95
   kld_weight: 0.00025
   manual_seed: 1265
+  S1func: none #random, rarest, frechet, inception, loss, none
 
 trainer_params:
   gpus: [0]

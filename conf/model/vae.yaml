@@ -8,12 +8,13 @@ exp_params:
   scheduler_gamma: 0.95
   kld_weight: 0.00025
   manual_seed: 1265
-  S1func: none
+  S1func: loss #random, rarest, frechet, inception, loss, none
+  k: 10000 #S1 size
 
 trainer_params:
   gpus: [0]
-  max_epochs: 5
+  max_epochs: 10
 
 logging_params:
   save_dir: "logs/"
-  name: "vae"
+  name: "debugfrechet"
