@@ -1,0 +1,9 @@
+data_name: 'mnist'
+data_path: "data/"
+in_channels: 3
+train_batch_size: 64
+val_batch_size:  64
+num_samples: 1000 #S0 size
+patch_size: 64
+num_workers: 4
+num_classes: 9
