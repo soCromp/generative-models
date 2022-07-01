@@ -10,8 +10,6 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pathlib import Path
 from dataloader import Dataset
 from pytorch_lightning.strategies.ddp import DDPStrategy
-from torchmetrics.image.inception import InceptionScore
-from torchmetrics.image.fid import FrechetInceptionDistance
 import simplejson
 
 parser = argparse.ArgumentParser(description='Generic experiment driver')
@@ -61,7 +59,7 @@ data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus'
 data.setup()
 
 Path(tb_logger.log_dir).mkdir(parents=True, exist_ok=True)
-with open(tb_logger.log_dir+'/testresult.txt', 'w') as f:
+with open(tb_logger.log_dir+'/hparams.txt', 'w') as f:
     f.write('-------hyperparameters-------\n')
     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
@@ -70,7 +68,7 @@ runner = Trainer(logger=tb_logger,
                 log_every_n_steps=1,
                  callbacks=[
                      LearningRateMonitor(),
-                     ModelCheckpoint(save_top_k=2, 
+                     ModelCheckpoint(save_top_k=1, #save the one best model 
                                      dirpath =os.path.join(tb_logger.log_dir , "checkpoints"), 
                                      monitor= "val_loss",
                                      save_last= True),

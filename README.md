@@ -5,7 +5,7 @@ Download CelebA from [https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QM
 
 ``conda env create -f conda_reqs.yml`` <br/>
 ``conda activate py`` <br/>
-``python run.py -m conf/model/vae.yaml -d conf/data/celeba.yaml``
+``python train.py -m conf/model/vae.yaml -d conf/data/celeba.yaml``
 
 **Requirements**
 - Conda 4.13

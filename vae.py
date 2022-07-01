@@ -35,7 +35,7 @@ class base_vae(pl.LightningModule):
         self.fc_var = nn.Linear(hidden_dims[-1]*h, latent_dims) # variance *4
 
         # build decoder
-        self.decoder_input = nn.Linear(latent_dims, hidden_dims[-1]*h) # *4
+        self.decoder_input = nn.Linear(latent_dims, hidden_dims[-1]*h).cuda() # *4
         hidden_dims.reverse()
 
         modules = []
