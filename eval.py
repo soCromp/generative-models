@@ -21,12 +21,6 @@ parser.add_argument('--modelconfig', '-m', help='yaml file of model hyperparamet
 parser.add_argument('--dataconfig', '-d', help='yaml file of dataset settings if they are not included in logdir', default=None) #optional
 args = parser.parse_args()
 
-# # args: logpath, use val or test set
-
-# model = Model.load_from_checkpoint(os.path.join(args.path, 'best.ckpt'))
-# model = Model() 
-
-
 # interpret given hyperparameters
 with open(args.modelconfig, 'r') as file:
     try:
@@ -45,11 +39,15 @@ with open(args.dataconfig, 'r') as file:
 data = Dataset(**dataconfig, pin_memory=True)#use GPU
 data.setup()
 
+# find desired (best) checkpoint
+ckpt = os.path.join(args.path, 'checkpoints', sorted(os.listdir(os.path.join(args.path, 'checkpoints')))[-2])
+print(ckpt)
+
 # set up model
 name=modelconfig['model_params']['name']
 if name == 'vae':
     print('will run vanilla VAE experiment')
-    model = vae.vanilla_vae(**modelconfig['model_params']) #so data hparams get saved to log file too
+    model = vae.vanilla_vae(**modelconfig['model_params']) 
 elif name=='betavae':
     print('will run beta vae experiment')
     model = vae.beta_vae(**modelconfig['model_params'])
@@ -58,7 +56,11 @@ elif name=='diffusion':
     model = diffusion.base_diffusion(**modelconfig['model_params'])
 else:
     raise NotImplementedError
-experiment = Model.load_from_checkpoint(os.path.join(args.path, 'best.ckpt'))
+
+
+
+experiment = Model(model.cuda(), modelconfig['exp_params']).cuda()
+experiment.load_from_checkpoint(ckpt, model=model.cuda(), params=modelconfig['exp_params'])
 # experiment = Model(model.cuda(), modelconfig['exp_params']).cuda()
 
 
@@ -69,6 +71,6 @@ tb_logger =  TensorBoardLogger(save_dir=logdir, name=None, version=version)
 
 trainer = Trainer(gpus=[0], logger=tb_logger, log_every_n_steps=1,)#https://pytorch-lightning.readthedocs.io/en/stable/common/checkpointing.html#checkpoint-loading
 
-trainer.test(model=experiment, ckpt_path=args.path, dataloaders=data.val_dataloader())
+trainer.test(model=experiment, dataloaders=data.val_dataloader())
 
 tb_logger.save()
