@@ -265,16 +265,14 @@ class Model(pl.LightningModule):
 
     def test_step(self, batch, batch_idx) -> None:
         recons, samples, origs = self.sample_images(batch, tofile=False, num_samples=64)
+        # print(recons.min(), recons.max(), origs.min(), origs.max())
         self.test_inception.update((255*samples).type(torch.uint8))
         self.test_fid.update(recons.type(torch.uint8), real=False)
         self.test_fid.update(origs.type(torch.uint8), real=True)
 
 
     def on_test_epoch_end(self) -> None:
-        # samples = 255*self.model.sample(128, self.curr_device)
-        # self.test_inception.update(samples.type(torch.uint8))
         imean, istd = self.test_inception.compute()
-        print(imean, istd)
         self.log('test_inception_mean', imean.item())
         self.log('test_inception_stdv', istd.item())
         self.log('test_frechet', self.test_fid.compute().item())
@@ -288,6 +286,9 @@ class Model(pl.LightningModule):
         test_label = test_label.to(self.curr_device)
 
         recons = self.model.generate(test_input, labels = test_label)
+        # normalize to between 0 and 1
+        recons = recons - recons.min()
+        recons = recons / recons.max()
         if tofile:
             vutils.save_image(recons.data,
                             os.path.join(self.logger.log_dir , 
