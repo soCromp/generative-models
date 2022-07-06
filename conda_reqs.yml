@@ -40,6 +40,7 @@ dependencies:
   - ipykernel=6.9.1=py310h06a4308_0
   - ipython=8.3.0=py310h06a4308_0
   - jedi=0.18.1=py310h06a4308_1
+  - joblib=1.1.0=pyhd3eb1b0_0
   - jpeg=9e=h7f8727e_0
   - jupyter_client=7.2.2=py310h06a4308_0
   - jupyter_core=4.10.0=py310h06a4308_0
@@ -49,6 +50,8 @@ dependencies:
   - ld_impl_linux-64=2.38=h1181459_1
   - libffi=3.3=he6710b0_2
   - libgcc-ng=11.2.0=h1234567_1
+  - libgfortran-ng=7.5.0=ha8ba4b0_17
+  - libgfortran4=7.5.0=ha8ba4b0_17
   - libgomp=11.2.0=h1234567_1
   - libiconv=1.16=h7f8727e_2
   - libidn2=2.3.2=h7f8727e_0
@@ -103,12 +106,14 @@ dependencies:
   - qt=5.9.7=h5867ecd_1
   - readline=8.1.2=h7f8727e_1
   - requests=2.27.1=pyhd3eb1b0_0
+  - scikit-learn=1.0.1=py310h00e6091_0
   - setuptools=61.2.0=py310h06a4308_0
   - simplejson=3.17.6=py310h7f8727e_0
   - sip=4.19.13=py310h295c915_0
   - six=1.16.0=pyhd3eb1b0_1
   - sqlite=3.38.3=hc218d9a_0
   - stack_data=0.2.0=pyhd3eb1b0_0
+  - threadpoolctl=2.2.0=pyh0d69192_0
   - tk=8.6.12=h1ccaba5_0
   - torchaudio=0.11.0=py310_cu113
   - torchvision=0.12.0=py310_cu113
@@ -127,24 +132,37 @@ dependencies:
     - absl-py==1.1.0
     - aiohttp==3.8.1
     - aiosignal==1.2.0
+    - astunparse==1.6.3
     - async-timeout==4.0.2
     - attrs==21.4.0
     - cachetools==5.2.0
     - einops==0.4.1
+    - flatbuffers==1.12
     - frozenlist==1.3.0
     - fsspec==2022.5.0
+    - gast==0.4.0
     - google-auth==2.7.0
     - google-auth-oauthlib==0.4.6
+    - google-pasta==0.2.0
     - grpcio==1.46.3
+    - h5py==3.7.0
+    - kaggle==1.5.12
+    - keras==2.9.0
+    - keras-preprocessing==1.1.2
+    - libclang==14.0.1
     - markdown==3.3.7
     - multidict==6.0.2
     - oauthlib==3.2.0
+    - opt-einsum==3.3.0
+    - pandas==1.4.2
     - protobuf==3.19.4
     - pyasn1==0.4.8
     - pyasn1-modules==0.2.8
     - pydeprecate==0.3.2
     - pyparsing==3.0.9
+    - python-slugify==6.1.2
     - pytorch-lightning==1.6.4
+    - pytz==2022.1
     - pyyaml==6.0
     - requests-oauthlib==1.3.1
     - rsa==4.8
@@ -152,9 +170,16 @@ dependencies:
     - tensorboard==2.9.1
     - tensorboard-data-server==0.6.1
     - tensorboard-plugin-wit==1.8.1
+    - tensorflow==2.9.1
+    - tensorflow-estimator==2.9.0
+    - tensorflow-io-gcs-filesystem==0.26.0
+    - termcolor==1.1.0
+    - text-unidecode==1.3
     - torch-fidelity==0.3.0
+    - torch-tb-profiler==0.4.0
     - torchmetrics==0.9.1
     - tqdm==4.64.0
     - werkzeug==2.1.2
+    - wrapt==1.14.1
     - yarl==1.7.2
 prefix: /home/sonia/miniconda3/envs/py
