@@ -12,6 +12,12 @@ from dataloader import Dataset
 from pytorch_lightning.strategies.ddp import DDPStrategy
 import simplejson
 
+import time
+import sys
+sys.path.insert(0, '/home/sonia') #because notify.py is in ~
+from notify import email
+ts = time.time()
+
 parser = argparse.ArgumentParser(description='Generic experiment driver')
 parser.add_argument('--modelconfig', '-m', help='yaml file of model hyperparameters', default='conf/model/vae.yaml')
 parser.add_argument('--dataconfig', '-d', help='yaml file of dataset settings', default='conf/data/mnist.yaml')
@@ -91,19 +97,7 @@ runner.fit(experiment, datamodule=data)
 
 tb_logger.save()
 
-# print(f"======= Validating {modelconfig['model_params']['name']} =======")
-# v =runner.validate(ckpt_path="best", dataloaders=data.val_dataloader())[0]
-# print(v)
-
-# print(f"======= Testing {modelconfig['model_params']['name']} =======")
-# t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
-# print(t)
-
-# tb_logger.save()
-
-# with open(tb_logger.log_dir+'/testresult.txt', 'a') as f:
-#     f.write('---------test scores---------\n')
-#     f.write('metric\t\t\tval\t\t\t\t\ttest\n')
-#     f.write(f'inception mean\t{v["val_inception_mean"]}\t\t{t["test_inception_mean"]}\n')
-#     f.write(f'inception stdev\t{v["val_inception_stdv"]}\t{t["test_inception_stdv"]}\n')
-#     f.write(f'frechet\t\t\t{v["val_frechet"]}\t\t{t["test_frechet"]}\n')
+te = time.time()
+email(f'Finished training {tb_logger.log_dir}!',
+    f'Start time: {time.ctime(ts)}\nEnd time: {time.ctime(te)}\nDuration: {(te-ts)//60} minutes or {(te-ts)//360} hours\n\n'+
+    f'Model metadata: {simplejson.dumps(modelconfig, indent=4)}\nData metadata: {simplejson.dumps(dataconfig, indent=4)}')
