@@ -13,9 +13,6 @@ from pytorch_lightning.strategies.ddp import DDPStrategy
 import simplejson
 
 import time
-import sys
-sys.path.insert(0, '/home/sonia') #because notify.py is in ~
-from notify import email
 ts = time.time()
 
 parser = argparse.ArgumentParser(description='Generic experiment driver')
@@ -97,7 +94,12 @@ runner.fit(experiment, datamodule=data)
 
 tb_logger.save()
 
-te = time.time()
-email(f'Finished training {tb_logger.log_dir}!',
-    f'Start time: {time.ctime(ts)}\nEnd time: {time.ctime(te)}\nDuration: {(te-ts)//60} minutes or {(te-ts)//360} hours\n\n'+
-    f'Model metadata: {simplejson.dumps(modelconfig, indent=4)}\nData metadata: {simplejson.dumps(dataconfig, indent=4)}')
+try:    
+    import sys
+    sys.path.insert(0, f'/home/{os.environ["user"]}') #because notify.py is in ~
+    from notify import email
+    te = time.time()
+    email(f'Finished training {tb_logger.log_dir}!',
+        f'Location: {os.environ["SSH_CLIENT"]}\nStart time: {time.ctime(ts)}\nEnd time: {time.ctime(te)}\nDuration: {(te-ts)//60} minutes or {(te-ts)//360} hours\n\n'+
+        f'Model metadata: {simplejson.dumps(modelconfig, indent=4)}\nData metadata: {simplejson.dumps(dataconfig, indent=4)}')
+except: print('notify.py not found in home directory or current directory')

@@ -99,6 +99,7 @@ class Model(pl.LightningModule):
             rarest = np.argmin(counts) #index (=group id) of rarest group
             v[predictions==rarest] = 1
 
+        self.analyzeClusters(predictions, num_clusters)
         return v
 
     def frechetS1(self):
@@ -226,6 +227,14 @@ class Model(pl.LightningModule):
         v = torch.zeros((len(pred_loader.dataset) ,))
         v[predictions==worst] = 1
         return v
+
+    def analyzeClusters(self, clusters, num_clusters): #pass in JUST the available training data
+        for c in range(num_clusters):
+            # find examples in cluster c
+            # if there's none, create a black square
+            # if there's some, arrange their images into a grid
+            # figure out which labels and other metadata they are, how many are in S0 vs S1 per cluster
+            return
 
     def on_train_epoch_end(self) -> None:
         #https://pytorch-lightning.readthedocs.io/en/stable/guides/data.html#accessing-dataloaders-within-lightningmodule
