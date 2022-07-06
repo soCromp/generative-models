@@ -28,14 +28,18 @@ class Model(pl.LightningModule):
         self.params = params
         S1funcs = {'random': self.randomS1, 'rarest': self.rarestS1, 'frechet': self.frechetS1, 
                     'inception': self.inceptionS1, 'loss': self.lossS1, 'none': None}
-        self.S1func = S1funcs[self.params['S1func']]
-        self.k = self.params['k']
-        if self.params['S1func'] == 'inception':
-            self.train_inception = InceptionScore(feature=64)
-        elif self.params['S1func'] == 'frechet':
-            self.train_fid = FrechetInceptionDistance(feature=64)#, reset_real_features=False)
-        # self.val_inception = InceptionScore(reset_real_features=False)
-        # self.val_fid = FrechetInceptionDistance(reset_real_features=False)
+        try:
+            self.S1func = S1funcs[self.params['S1func']]
+            self.k = self.params['k']
+            if self.params['S1func'] == 'inception':
+                self.train_inception = InceptionScore(feature=64)
+            elif self.params['S1func'] == 'frechet':
+                self.train_fid = FrechetInceptionDistance(feature=64)#, reset_real_features=False)
+            # self.val_inception = InceptionScore(reset_real_features=False)
+            # self.val_fid = FrechetInceptionDistance(reset_real_features=False)
+        except:
+            self.S1func = None
+
         self.curr_device = None
         self.hold_graph = False
         try:

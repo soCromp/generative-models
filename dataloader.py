@@ -8,6 +8,7 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import CelebA, MNIST
+import pandas as pd
 
 
 # Add your custom dataset class here
@@ -60,6 +61,36 @@ class OxfordPets(Dataset):
             img = self.transforms(img)
         
         return img, 0.0 # dummy datat to prevent breaking 
+
+
+class GTSRB(Dataset):
+    def __init__(self, dir, split, transform):
+        self.dir = os.path.join(dir, 'gtsrb')
+        self.split = split
+        self.transform = transform
+
+        if split == 'test':
+            # self.fnames = [os.path.join(self.dir, 'Test', f) for f in os.listdir(os.path.join(self.dir, 'Test')) ]
+            self.meta = pd.read_csv(os.path.join(self.dir, 'Test.csv'))
+            # self.labels = self.meta['ClassId']
+        elif split == 'train':
+            # self.fnames = []
+            # for path, _, files in os.walk('Train'):   
+            #         for f in files: self.fnames.append(os.path.join(path, f))
+            self.meta = pd.read_csv(os.path.join(self.dir, 'Train.csv'))
+            # self.labels = self.meta['ClassId']
+    
+    def __len__(self):
+        return self.meta.shape[0]
+    
+    def __getitem__(self, idx):
+        loc = os.path.join(self.dir, self.meta.Path[idx])
+        # read image
+        img = default_loader(loc)
+        if self.transform is not None:
+            img = self.transform(img)
+        
+        return img, self.meta.ClassId[idx] # dummy datat to prevent breaking 
 
 
 class Dataset(LightningDataModule):
@@ -160,6 +191,24 @@ class Dataset(LightningDataModule):
                                         transforms.ToTensor() ])
             self.train_dataset_all = MNIST(self.data_dir, train=True, transform=trans, download=True)
             self.val_dataset = MNIST(self.data_dir, train=False, transform=trans, download=True)
+
+
+        elif self.name.lower() == 'gtsrb':
+            trans = transforms.Compose([transforms.CenterCrop(32),
+                                        transforms.Resize(self.patch_size),
+                                        transforms.ToTensor(),])
+            
+            self.train_dataset_all = GTSRB(
+                self.data_dir,
+                split='train',
+                transform=trans
+            )
+            self.val_dataset = GTSRB(
+                self.data_dir,
+                split='test',
+                transform = trans
+            )
+
 
         if self.num_samples > 0:
             # generate random list and take top num_samples values as 1, all others as 0. These are S0 indices

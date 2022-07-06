@@ -1,0 +1,8 @@
+data_name: 'gtsrb'
+data_path: "data/"
+in_channels: 3 
+train_batch_size: 64
+val_batch_size:  64
+patch_size: 64
+num_workers: 4
+num_classes: 43
