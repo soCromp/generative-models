@@ -33,6 +33,16 @@ with open(args.dataconfig, 'r') as file:
     except yaml.YAMLError as exc:
         print(exc)
 
+# setup logging
+if not os.path.isdir(os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name'],
+                                dataconfig['data_name'])):
+    os.makedirs(os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name'],
+                                    dataconfig['data_name']))
+tb_logger =  TensorBoardLogger(save_dir=os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name'],
+                                dataconfig['data_name']),
+                               name=modelconfig['model_params']['name'],)
+print('logging to', tb_logger.log_dir)
+
 # set up model
 name=modelconfig['model_params']['name']
 if name == 'vae':
@@ -47,14 +57,6 @@ elif name=='diffusion':
 else:
     raise NotImplementedError
 
-if not os.path.isdir(os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name'],
-                                dataconfig['data_name'])):
-    os.makedirs(os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name'],
-                                    dataconfig['data_name']))
-tb_logger =  TensorBoardLogger(save_dir=os.path.join(modelconfig['logging_params']['save_dir'], modelconfig['logging_params']['name'],
-                                dataconfig['data_name']),
-                               name=modelconfig['model_params']['name'],)
-print('logging to', tb_logger.log_dir)
 # For reproducibility
 # seed_everything(modelconfig['exp_params']['manual_seed'], True)
 
@@ -89,9 +91,9 @@ runner.fit(experiment, datamodule=data)
 
 tb_logger.save()
 
-print(f"======= Validating {modelconfig['model_params']['name']} =======")
-v =runner.validate(ckpt_path="best", dataloaders=data.val_dataloader())[0]
-print(v)
+# print(f"======= Validating {modelconfig['model_params']['name']} =======")
+# v =runner.validate(ckpt_path="best", dataloaders=data.val_dataloader())[0]
+# print(v)
 
 # print(f"======= Testing {modelconfig['model_params']['name']} =======")
 # t =runner.test(ckpt_path="best", dataloaders=data.test_dataloader())[0]
