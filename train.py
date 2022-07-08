@@ -66,6 +66,7 @@ else:
 experiment = Model(model, modelconfig['exp_params'])
 data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus']) != 0)
 data.setup()
+print(len(data.train_dataset_all))
 
 Path(tb_logger.log_dir).mkdir(parents=True, exist_ok=True)
 with open(tb_logger.log_dir+'/hparams.txt', 'w') as f:

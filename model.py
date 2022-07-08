@@ -234,7 +234,7 @@ class Model(pl.LightningModule):
         self.clusters.append(clusters)
         for c in range(self.num_clusters):
             # find examples in cluster c
-            cluster = (clusters==c)
+            cluster = (clusters==c).astype(np.float32)
             clusterS0 = cluster[self.trainer.datamodule.indicesS0]
             clusterS1 = cluster[self.trainer.datamodule.indicesS1]
             self.log(f'cluster{c}_all', cluster.sum())
@@ -259,7 +259,6 @@ class Model(pl.LightningModule):
             for c in range(self.num_clusters):
                 # find index numbers of S0 points in the cluster
                 S0 = torch.tensor((predictions == c)[self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
-                print(S0)
                 # find index numbers of other points in the cluster (~ is not operator)
                 S1 = torch.tensor((predictions == c)[~self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
                 # choose up to 120 S0 indices
@@ -273,6 +272,9 @@ class Model(pl.LightningModule):
 
                 res = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
                 imgs = torch.stack([r[0] for r in res])
+                labels = torch.stack([r[1] for r in res])
+                ids, counts = np.unique(labels, return_counts=True)
+                print(c, ids, counts)
                 grid = vutils.make_grid(imgs, nrow=12)
                 F.to_pil_image(grid).save(os.path.join(self.logger.log_dir, f'clusters/epoch{epoch}c{c}.png'))
 
