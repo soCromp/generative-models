@@ -216,7 +216,7 @@ class Dataset(LightningDataModule):
             self.indicesS0 = torch.zeros(size=(len(self.train_dataset_all), ), dtype=torch.bool)
             indices = torch.topk(randy, self.num_samples)[1] #actual index numbers
             self.indicesS0[indices] = 1 #one-hot
-            self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), )) #init to all zeroes
+            self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), ), dtype=torch.bool) #init to all zeroes
             # self.indicesS0.nonzero(as_tuple=True)[0] #to recover the index numbers off the one-hot
 
             self.S0 = torch.utils.data.Subset(self.train_dataset_all, indices)
@@ -235,7 +235,7 @@ class Dataset(LightningDataModule):
         # indices of S1 to add to S0
         vpick = v
         vpick[self.indicesS0]= -1e25
-        self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), ))
+        self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), ), dtype=torch.bool)
         self.indicesS1[torch.topk(vpick, k)[1]] = 1 #one-hot
         self.S1selected = torch.utils.data.Subset(self.train_dataset_all, self.indicesS1.nonzero(as_tuple=True)[0])
 

@@ -9,14 +9,15 @@ from utils import data_loader
 import pytorch_lightning as pl
 from torchvision import transforms
 import torchvision.utils as vutils
+import torchvision.transforms.functional as F
 from torchvision.datasets import CelebA
 from torch.utils.data import DataLoader
 from torchmetrics.image.inception import InceptionScore
 from torchmetrics.image.fid import FrechetInceptionDistance
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
-import tqdm
-
+from random import sample
+import shutil
 
 class Model(pl.LightningModule):
 
@@ -35,6 +36,8 @@ class Model(pl.LightningModule):
                 self.train_inception = InceptionScore(feature=64)
             elif self.params['S1func'] == 'frechet':
                 self.train_fid = FrechetInceptionDistance(feature=64)#, reset_real_features=False)
+            self.clusters = []
+            self.num_clusters = 5
             # self.val_inception = InceptionScore(reset_real_features=False)
             # self.val_fid = FrechetInceptionDistance(reset_real_features=False)
         except:
@@ -73,10 +76,8 @@ class Model(pl.LightningModule):
         fit_loader = self.trainer.datamodule.train_dataloader()
         pred_loader = self.trainer.datamodule.train_all_dataloader()
         batch_size = self.trainer.datamodule.train_batch_size
-        num_clusters = 5
-        kmeans = MiniBatchKMeans(n_clusters=num_clusters, random_state=2, batch_size=batch_size)
+        kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=2, batch_size=batch_size)
         
-        metrics = []
         for batch, i in fit_loader:
             latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
             kmeans.partial_fit(latent)
@@ -91,15 +92,16 @@ class Model(pl.LightningModule):
         ids, counts = np.unique(predictions[self.trainer.datamodule.indicesS0+self.trainer.datamodule.indicesS1==1], return_counts=True)
         
         v = torch.zeros((len(pred_loader.dataset) ,))
-        if ids.shape[0] != num_clusters: #if not all clusters are present in predictions, non-present ones are the rarest
-            missing = set(range(num_clusters)) - set(ids)
+        if ids.shape[0] != self.num_clusters: #if not all clusters are present in predictions, non-present ones are the rarest
+            missing = set(range(self.num_clusters)) - set(ids)
             for m in missing: #not efficient but there will only be one or two such m. revisit later
                 v[predictions==m] = 1
         else: #all are present so select the one with fewest occurences
             rarest = np.argmin(counts) #index (=group id) of rarest group
             v[predictions==rarest] = 1
 
-        self.analyzeClusters(predictions, num_clusters)
+        self.clusters.append(predictions)
+        self.analyzeClusters(predictions)
         return v
 
     def frechetS1(self):
@@ -107,8 +109,7 @@ class Model(pl.LightningModule):
         fit_loader = self.trainer.datamodule.train_dataloader()
         pred_loader = self.trainer.datamodule.train_all_dataloader()
         batch_size = self.trainer.datamodule.train_batch_size
-        num_clusters=5
-        kmeans = MiniBatchKMeans(n_clusters=num_clusters, random_state=2, batch_size=batch_size)
+        kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=2, batch_size=batch_size)
 
         for batch, i in fit_loader:
             latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
@@ -121,9 +122,9 @@ class Model(pl.LightningModule):
             predbatches.append(kmeans.predict(latent))
         predictions = np.concatenate(predbatches) #cluster of each point
 
-        frech = torch.zeros((num_clusters, ))
+        frech = torch.zeros((self.num_clusters, ))
         in_train=(self.trainer.datamodule.indicesS0 + self.trainer.datamodule.indicesS1).type(torch.bool)
-        for g in range(num_clusters): #get S0 and training S1 points in this cluster
+        for g in range(self.num_clusters): #get S0 and training S1 points in this cluster
             incl = torch.bitwise_and(in_train, torch.tensor(predictions)==g)
             if incl.sum() == 0: frech[g] = 1e10
             else:
@@ -143,6 +144,7 @@ class Model(pl.LightningModule):
         # print(frech)
         worst = frech.argmax() #group with worst fid
         v[predictions==worst] = 1
+        self.clusters.append(predictions)
         return v
 
     def inceptionS1(self):
@@ -150,8 +152,7 @@ class Model(pl.LightningModule):
         fit_loader = self.trainer.datamodule.train_dataloader()
         pred_loader = self.trainer.datamodule.train_all_dataloader()
         batch_size = self.trainer.datamodule.train_batch_size
-        num_clusters=5
-        kmeans = MiniBatchKMeans(n_clusters=num_clusters, random_state=2, batch_size=batch_size)
+        kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=2, batch_size=batch_size)
 
         # create clusters
         for batch, i in fit_loader:
@@ -165,9 +166,9 @@ class Model(pl.LightningModule):
             predbatches.append(kmeans.predict(latent))
         predictions = np.concatenate(predbatches) #cluster of each point
 
-        incep = torch.zeros((num_clusters, ))
+        incep = torch.zeros((self.num_clusters, ))
         in_train=(self.trainer.datamodule.indicesS0 + self.trainer.datamodule.indicesS1).type(torch.bool)
-        for g in range(num_clusters): #get S0 and training S1 points in this cluster
+        for g in range(self.num_clusters): #get S0 and training S1 points in this cluster
             incl = torch.bitwise_and(in_train, torch.tensor(predictions)==g)
             if incl.sum() == 0: incep[g] = 1e10
             else:
@@ -183,14 +184,14 @@ class Model(pl.LightningModule):
         print(incep)
         worst = incep.argmax() #group with worst fid
         v[predictions==worst] = 1
+        self.clusters.append(predictions)
         return v
 
     def lossS1(self):
         fit_loader = self.trainer.datamodule.train_dataloader()
         pred_loader = self.trainer.datamodule.train_all_dataloader()
         batch_size = self.trainer.datamodule.train_batch_size
-        numclusters=5
-        kmeans = MiniBatchKMeans(n_clusters=numclusters, random_state=2, batch_size=batch_size)
+        kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=2, batch_size=batch_size)
         
         metrics = []
         for batch, i in fit_loader:
@@ -212,7 +213,7 @@ class Model(pl.LightningModule):
         df = np.stack([predictionsS0, np.concatenate(metrics)]).T #col0 is cluster and col1 is loss
         #ensure all clusters have at least one point
         ids = set(np.unique(df[:, 0]))
-        allids = set(range(numclusters))
+        allids = set(range(self.num_clusters))
         absent = list(allids - ids)
         if len(absent)>0:
             loss = [1e10]*len(absent)
@@ -226,15 +227,22 @@ class Model(pl.LightningModule):
         
         v = torch.zeros((len(pred_loader.dataset) ,))
         v[predictions==worst] = 1
+        self.clusters.append(predictions)
         return v
 
-    def analyzeClusters(self, clusters, num_clusters): #pass in JUST the available training data
-        for c in range(num_clusters):
+    def analyzeClusters(self, clusters): #pass in JUST the available training data
+        self.clusters.append(clusters)
+        for c in range(self.num_clusters):
             # find examples in cluster c
-            # if there's none, create a black square
-            # if there's some, arrange their images into a grid
+            cluster = (clusters==c)
+            clusterS0 = cluster[self.trainer.datamodule.indicesS0]
+            clusterS1 = cluster[self.trainer.datamodule.indicesS1]
+            self.log(f'cluster{c}_all', cluster.sum())
+            self.log(f'cluster{c}_S0', clusterS0.sum())
+            self.log(f'cluster{c}_availS1', clusterS1.sum())
+            self.log(f'cluster{c}_avail', clusterS0.sum() + clusterS1.sum())
             # figure out which labels and other metadata they are, how many are in S0 vs S1 per cluster
-            return
+
 
     def on_train_epoch_end(self) -> None:
         #https://pytorch-lightning.readthedocs.io/en/stable/guides/data.html#accessing-dataloaders-within-lightningmodule
@@ -243,6 +251,47 @@ class Model(pl.LightningModule):
             v = self.S1func()
             self.trainer.datamodule.v_update(v, self.k) 
             self.trainer.reset_train_dataloader(self)
+
+    def on_train_end(self) -> None: #make grids of images for each cluster
+        if len(self.clusters) == 0: return
+        os.makedirs(os.path.join(self.logger.log_dir, 'clusters'))
+        for epoch, predictions in enumerate(self.clusters): #the predictions in a given epoch
+            for c in range(self.num_clusters):
+                # find index numbers of S0 points in the cluster
+                S0 = torch.tensor((predictions == c)[self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
+                print(S0)
+                # find index numbers of other points in the cluster (~ is not operator)
+                S1 = torch.tensor((predictions == c)[~self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
+                # choose up to 120 S0 indices
+                if len(S0) > 120:
+                    S0 = sample(S0, 120)
+                # fill remaining out of the 144 images with S1 images
+                if len(S1) > max(24, 144-len(S0)):
+                    S1 = sample(S1, max(24, 144-len(S0)))
+                idx = S0+S1
+                if len(idx)==0: continue
+
+                res = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
+                imgs = torch.stack([r[0] for r in res])
+                grid = vutils.make_grid(imgs, nrow=12)
+                F.to_pil_image(grid).save(os.path.join(self.logger.log_dir, f'clusters/epoch{epoch}c{c}.png'))
+
+                # figure = plt.figure(figsize=(16, 16))
+                # rows, cols = 12, 12
+                # for i in range(1, cols * rows + 1):
+                #     figure.add_subplot(rows, cols, i)
+                #     end = i*12
+                #     if end > len(idx): end = -1
+                #     rowidx = idx[ (i-1)*12 : end ]
+                #     res = [self.trainer.datamodule.train_dataset_all[i] for i in rowidx]
+                #     imgs = torch.stack([r[0] for r in res])
+                #     print(imgs.shape)
+                #     labels = [r[1] for r in res]
+                #     plt.imshow(imgs.squeeze())
+                #     if end >= idx-1 or end == -1: break
+                # plt.save(f'epoch{epoch}_cluster{c}.png')
+        print('done')
+
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
         real_img, labels = batch
