@@ -228,7 +228,7 @@ class Dataset(LightningDataModule):
         add these points to the training set and then return an updated train dataloader"""
         self.S1(v, k)
         self.train_dataset = torch.utils.data.ConcatDataset([self.S0, self.S1selected])
-        return self.train_dataloader()
+        return self.indicesS1
 
     def S1(self, v, k):
         # make a list with S0 indices' elements set to -Inf, all others by 1. Multiply by random numbers and choose top k to get 

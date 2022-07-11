@@ -12,8 +12,8 @@ class email:
             server.sendmail('mycodeisdone@gmail.com', 'mycodeisdone@gmail.com', f'Subject: {subject}\n\n{message}')
 
 if __name__ == '__main__':
-        try: content = '' + sys.argv[-1]
-        except: content = '    '
-        subject = 'The code is done!'
-        email(subject, content)
+    try: content = '' + sys.argv[-1]
+    except: content = '    '
+    subject = 'The code is done!'
+    email(subject, content)
         

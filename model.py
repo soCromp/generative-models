@@ -36,7 +36,8 @@ class Model(pl.LightningModule):
                 self.train_inception = InceptionScore(feature=64)
             elif self.params['S1func'] == 'frechet':
                 self.train_fid = FrechetInceptionDistance(feature=64)#, reset_real_features=False)
-            self.clusters = []
+            self.clusters = [] # predicted cluster for each point in each epoch
+            self.availS1 = [] # S1 points that are available in a given epoch (starts with 1st epoch)
             self.num_clusters = 5
             # self.val_inception = InceptionScore(reset_real_features=False)
             # self.val_fid = FrechetInceptionDistance(reset_real_features=False)
@@ -96,9 +97,11 @@ class Model(pl.LightningModule):
             missing = set(range(self.num_clusters)) - set(ids)
             for m in missing: #not efficient but there will only be one or two such m. revisit later
                 v[predictions==m] = 1
+            self.log('worst_cluster', m)
         else: #all are present so select the one with fewest occurences
             rarest = np.argmin(counts) #index (=group id) of rarest group
             v[predictions==rarest] = 1
+            self.log('worst_cluster', rarest)
 
         self.clusters.append(predictions)
         self.analyzeClusters(predictions)
@@ -144,6 +147,7 @@ class Model(pl.LightningModule):
         # print(frech)
         worst = frech.argmax() #group with worst fid
         v[predictions==worst] = 1
+        self.log('worst_cluster', worst)
         self.clusters.append(predictions)
         return v
 
@@ -184,6 +188,7 @@ class Model(pl.LightningModule):
         print(incep)
         worst = incep.argmax() #group with worst fid
         v[predictions==worst] = 1
+        self.log('worst_cluster', worst)
         self.clusters.append(predictions)
         return v
 
@@ -227,6 +232,7 @@ class Model(pl.LightningModule):
         
         v = torch.zeros((len(pred_loader.dataset) ,))
         v[predictions==worst] = 1
+        self.log('worst_cluster', worst)
         self.clusters.append(predictions)
         return v
 
@@ -249,11 +255,12 @@ class Model(pl.LightningModule):
         # self.log('train_frechet', self.train_fid.compute().item())
         if self.S1func is not None:
             v = self.S1func()
-            self.trainer.datamodule.v_update(v, self.k) 
+            s1 = self.trainer.datamodule.v_update(v, self.k)  #returns 1hot vector of chosen S1 points
+            self.availS1.append(s1)
             self.trainer.reset_train_dataloader(self)
 
     def on_train_end(self) -> None: #make grids of images for each cluster
-        if len(self.clusters) == 0: return
+        if self.params['S1func'] == 'none' or len(self.clusters) == 0: return
         os.makedirs(os.path.join(self.logger.log_dir, 'clusters'))
         for epoch, predictions in enumerate(self.clusters): #the predictions in a given epoch
             for c in range(self.num_clusters):
