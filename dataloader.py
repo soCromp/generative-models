@@ -31,6 +31,15 @@ class MyCelebA(CelebA):
     Download and Extract
     URL : https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing
     """
+
+    def __getitem__(self, index: int):
+        item = super().__getitem__(index)
+        img, label = item[0], item[1]
+        if self.transform is not None:
+            img = self.transform(img)
+        if self.target_transform is not None:
+            label = self.target_transform(label)
+        return img, label
     
     def _check_integrity(self) -> bool:
         return True

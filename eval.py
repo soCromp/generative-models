@@ -13,6 +13,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pathlib import Path
 from dataloader import Dataset
 from pytorch_lightning.strategies.ddp import DDPStrategy
+import simplejson
+import time
+ts = time.time()
 
 parser = argparse.ArgumentParser(description='Generic experiment driver')
 # parser.add_argument('--test', '-t', help='True if wish to use test set, false for validation set', default=False)
@@ -74,3 +77,15 @@ trainer = Trainer(gpus=[0], logger=tb_logger, log_every_n_steps=1,)#https://pyto
 trainer.test(model=experiment, dataloaders=data.val_dataloader())
 
 tb_logger.save()
+
+te = time.time()
+msg = f'Location: {os.environ["SSH_CLIENT"]}\nStart time: {time.ctime(ts)}\nEnd time: {time.ctime(te)}\nDuration: {(te-ts)//60} minutes or {(te-ts)//3600} hours\n\n'+\
+    f'Model metadata: {simplejson.dumps(modelconfig, indent=4)}\nData metadata: {simplejson.dumps(dataconfig, indent=4)}'
+sbj = f'Finished evaluating {tb_logger.log_dir}!'
+
+try:    
+    import sys
+    sys.path.insert(0, f'/home/{os.environ["USER"]}') #because notify.py is in ~
+    from notify import email
+    email(sbj, msg)
+except: print('notify.py not found in home directory or current directory')

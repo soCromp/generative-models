@@ -91,14 +91,14 @@ Path(f"{tb_logger.log_dir}/Reconstructions").mkdir(exist_ok=True, parents=True)
 
 
 print(f"======= Training {modelconfig['model_params']['name']} =======")
-try:
-    runner.fit(experiment, datamodule=data)
-    tb_logger.save()
-    error = ''
-    sbj = f'Finished training {tb_logger.log_dir}!'
-except Exception as e:
-    sbj = f'ERROR in training {tb_logger.log_dir}'
-    error = str(e) + '\n'
+# try:
+runner.fit(experiment, datamodule=data)
+tb_logger.save()
+error = ''
+sbj = f'Finished training {tb_logger.log_dir}!'
+# except Exception as e:
+#     sbj = f'ERROR in training {tb_logger.log_dir}'
+#     error = str(e) + '\n'
 
 te = time.time()
 msg = f'Location: {os.environ["SSH_CLIENT"]}\nStart time: {time.ctime(ts)}\nEnd time: {time.ctime(te)}\nDuration: {(te-ts)//60} minutes or {(te-ts)//3600} hours\n\n'+\

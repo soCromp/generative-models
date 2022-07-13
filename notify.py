@@ -16,4 +16,3 @@ if __name__ == '__main__':
     except: content = '    '
     subject = 'The code is done!'
     email(subject, content)
-        

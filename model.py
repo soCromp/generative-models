@@ -37,7 +37,7 @@ class Model(pl.LightningModule):
             elif self.params['S1func'] == 'frechet':
                 self.train_fid = FrechetInceptionDistance(feature=64)#, reset_real_features=False)
             self.clusters = [] # predicted cluster for each point in each epoch
-            self.availS1 = [] # S1 points that are available in a given epoch (starts with 1st epoch)
+            self.availS1 = [] # 1hot S1 points that are available in a given epoch (starts with 1st epoch)
             self.num_clusters = 5
             # self.val_inception = InceptionScore(reset_real_features=False)
             # self.val_fid = FrechetInceptionDistance(reset_real_features=False)
@@ -262,7 +262,12 @@ class Model(pl.LightningModule):
     def on_train_end(self) -> None: #make grids of images for each cluster
         if self.params['S1func'] == 'none' or len(self.clusters) == 0: return
         os.makedirs(os.path.join(self.logger.log_dir, 'clusters'))
-        for epoch, predictions in enumerate(self.clusters): #the predictions in a given epoch
+        print('label distribution per cluster in each epoch\ncluster\tlabels\tcounts')
+        clusterlabelstr = 'label distribution per cluster in each epoch\ncluster\tlabels\tcounts\n'
+        for epoch in range(self.trainer.max_epochs):
+            print(epoch)
+            clusterlabelstr = clusterlabelstr + str(epoch) + '\n'
+            predictions = self.clusters[epoch]
             for c in range(self.num_clusters):
                 # find index numbers of S0 points in the cluster
                 S0 = torch.tensor((predictions == c)[self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
@@ -275,30 +280,25 @@ class Model(pl.LightningModule):
                 if len(S1) > max(24, 144-len(S0)):
                     S1 = sample(S1, max(24, 144-len(S0)))
                 idx = S0+S1
-                if len(idx)==0: continue
+                if len(idx)>0:
+                    res = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
+                    imgs = torch.stack([r[0] for r in res])
+                    grid = vutils.make_grid(imgs, nrow=12)
+                    F.to_pil_image(grid).save(os.path.join(self.logger.log_dir, f'clusters/epoch{epoch}c{c}.png'))
 
-                res = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
-                imgs = torch.stack([r[0] for r in res])
-                labels = torch.stack([r[1] for r in res])
-                ids, counts = np.unique(labels, return_counts=True)
+                avail = self.trainer.datamodule.indicesS0
+                if epoch > 0: avail = avail | self.availS1[epoch-1]
+                idx = torch.tensor((predictions == c)[avail]).nonzero(as_tuple=True)[0].tolist()
+                items = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
+                if len(items)>0:
+                    labels = torch.stack([torch.tensor(i[1]) for i in items])
+                    ids, counts = np.unique(labels, return_counts=True)
+                else: ids, counts = [], []
                 print(c, ids, counts)
-                grid = vutils.make_grid(imgs, nrow=12)
-                F.to_pil_image(grid).save(os.path.join(self.logger.log_dir, f'clusters/epoch{epoch}c{c}.png'))
-
-                # figure = plt.figure(figsize=(16, 16))
-                # rows, cols = 12, 12
-                # for i in range(1, cols * rows + 1):
-                #     figure.add_subplot(rows, cols, i)
-                #     end = i*12
-                #     if end > len(idx): end = -1
-                #     rowidx = idx[ (i-1)*12 : end ]
-                #     res = [self.trainer.datamodule.train_dataset_all[i] for i in rowidx]
-                #     imgs = torch.stack([r[0] for r in res])
-                #     print(imgs.shape)
-                #     labels = [r[1] for r in res]
-                #     plt.imshow(imgs.squeeze())
-                #     if end >= idx-1 or end == -1: break
-                # plt.save(f'epoch{epoch}_cluster{c}.png')
+                clusterlabelstr = clusterlabelstr + str(c) + '\t' + str(ids) + '\t' + str(counts) + '\n'
+        
+        with open(os.path.join(self.logger.log_dir, 'clusters', 'labels.txt'), 'w') as f:
+            f.write(clusterlabelstr)
         print('done')
 
 
