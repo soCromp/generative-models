@@ -4,6 +4,7 @@ Adapted from https://github.com/AntixK/PyTorch-VAE
 Download CelebA from [https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing](https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing) and place it in a ./data directory (MNIST gets downloaded automatically)
 
 Download German Traffic Sign Recognition Benchmark (GTSRB) from Kaggle at [https://www.kaggle.com/datasets/meowmeowmeowmeowmeow/gtsrb-german-traffic-sign](https://www.kaggle.com/datasets/meowmeowmeowmeowmeow/gtsrb-german-traffic-sign) into a directory named ./data/gtsrb, then unzip it.
+Move `notify.py` into home directory or modify `train.py` and `eval.py`.
 
 ``conda env create -f conda_reqs.yml`` <br/>
 ``conda activate py`` <br/>

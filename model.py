@@ -15,34 +15,28 @@ from torch.utils.data import DataLoader
 from torchmetrics.image.inception import InceptionScore
 from torchmetrics.image.fid import FrechetInceptionDistance
 import numpy as np
-from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import MiniBatchKMeans, KMeans
 from random import sample
 import shutil
 
 class Model(pl.LightningModule):
-
     def __init__(self,
                  model,
                  params: dict,) -> None:
         super(Model, self).__init__()
         self.model = model
         self.params = params
-        S1funcs = {'random': self.randomS1, 'rarest': self.rarestS1, 'frechet': self.frechetS1, 
-                    'inception': self.inceptionS1, 'loss': self.lossS1, 'none': None}
+        S1funcs = {'random': self.randomS1, 'rarest': self.rarestS1, 'loss': self.lossS1, 'none': None}
         try:
             self.S1func = S1funcs[self.params['S1func']]
             self.k = self.params['k']
-            if self.params['S1func'] == 'inception':
-                self.train_inception = InceptionScore(feature=64)
-            elif self.params['S1func'] == 'frechet':
-                self.train_fid = FrechetInceptionDistance(feature=64)#, reset_real_features=False)
             self.clusters = [] # predicted cluster for each point in each epoch
             self.availS1 = [] # 1hot S1 points that are available in a given epoch (starts with 1st epoch)
-            self.num_clusters = 5
-            # self.val_inception = InceptionScore(reset_real_features=False)
-            # self.val_fid = FrechetInceptionDistance(reset_real_features=False)
+            self.num_clusters = 2
         except:
             self.S1func = None
+
+        self.l1difference = torch.nn.L1Loss()
 
         self.curr_device = None
         self.hold_graph = False
@@ -51,8 +45,10 @@ class Model(pl.LightningModule):
         except:
             pass
 
+
     def forward(self, input: Tensor, **kwargs) -> Tensor:
         return self.model(input.cuda(), **kwargs)
+
 
     def training_step(self, batch, batch_idx, optimizer_idx = 0):
         real_img, labels = batch
@@ -70,18 +66,32 @@ class Model(pl.LightningModule):
         # self.train_fid.update(results[0].type(torch.uint8), real=False)
         return train_loss['loss']
 
+
     def randomS1(self):
         return torch.rand((len(self.trainer.datamodule.train_dataset_all), ))
+
 
     def rarestS1(self):
         fit_loader = self.trainer.datamodule.train_dataloader()
         pred_loader = self.trainer.datamodule.train_all_dataloader()
         batch_size = self.trainer.datamodule.train_batch_size
-        kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=2, batch_size=batch_size)
-        
+        # kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=1, batch_size=batch_size, reassignment_ratio=0.9,
+        #                         max_no_improvement=None, )
+        kmeans = KMeans(n_clusters=self.num_clusters, random_state=1, )
+
+        X = None
         for batch, i in fit_loader:
-            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
-            kmeans.partial_fit(latent)
+            latent = self.model.to_latent(batch.cuda()) #.cpu().detach().numpy()
+            # kmeans.partial_fit(latent)
+            # X.append(latent)
+            if type(X) == type(None):
+                X=latent.cpu().detach().numpy()
+            else:
+                X = np.concatenate([X, latent.cpu().detach().numpy()])
+        
+        # X = torch.cat(X).cpu().detach().numpy()
+        X = X
+        kmeans.fit(X)
 
         predbatches = [] #will be list of batch-size ndarray vectors
         for batch, i in pred_loader:
@@ -107,90 +117,6 @@ class Model(pl.LightningModule):
         self.analyzeClusters(predictions)
         return v
 
-    def frechetS1(self):
-        self.train_fid.reset() #runs after this train epoch is logged, so reset is ok
-        fit_loader = self.trainer.datamodule.train_dataloader()
-        pred_loader = self.trainer.datamodule.train_all_dataloader()
-        batch_size = self.trainer.datamodule.train_batch_size
-        kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=2, batch_size=batch_size)
-
-        for batch, i in fit_loader:
-            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
-            kmeans.partial_fit(latent)
-            # self.train_fid.update(batch.cuda().type(torch.uint8), real=True)
-
-        predbatches = [] #will be list of batch-size ndarray vectors
-        for batch, i in pred_loader:
-            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
-            predbatches.append(kmeans.predict(latent))
-        predictions = np.concatenate(predbatches) #cluster of each point
-
-        frech = torch.zeros((self.num_clusters, ))
-        in_train=(self.trainer.datamodule.indicesS0 + self.trainer.datamodule.indicesS1).type(torch.bool)
-        for g in range(self.num_clusters): #get S0 and training S1 points in this cluster
-            incl = torch.bitwise_and(in_train, torch.tensor(predictions)==g)
-            if incl.sum() == 0: frech[g] = 1e10
-            else:
-                d = torch.utils.data.Subset(pred_loader.dataset, incl.nonzero(as_tuple=True)[0])
-                dl = DataLoader(d, batch_size=int(incl.sum()))
-                images, labels = next(iter(dl))
-                results = self.forward(images.cuda(), labels = labels.cuda())
-                self.train_fid.update(images.cuda().type(torch.uint8), real=True)
-                self.train_fid.update(results[0].type(torch.uint8), real=False)
-                if images.shape[0] == 1: #because fid only works if you have more than one
-                    self.train_fid.update(images.cuda().type(torch.uint8), real=True)
-                    self.train_fid.update(results[0].type(torch.uint8), real=False)
-                frech[g] = self.train_fid.compute().item()
-                self.train_fid.reset()
-
-        v = torch.zeros((len(pred_loader.dataset) ,))
-        # print(frech)
-        worst = frech.argmax() #group with worst fid
-        v[predictions==worst] = 1
-        self.log('worst_cluster', worst)
-        self.clusters.append(predictions)
-        return v
-
-    def inceptionS1(self):
-        self.train_inception.reset() #just in-case
-        fit_loader = self.trainer.datamodule.train_dataloader()
-        pred_loader = self.trainer.datamodule.train_all_dataloader()
-        batch_size = self.trainer.datamodule.train_batch_size
-        kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=2, batch_size=batch_size)
-
-        # create clusters
-        for batch, i in fit_loader:
-            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
-            kmeans.partial_fit(latent)
-
-        # place each point in a cluster
-        predbatches = [] #will be list of batch-size ndarray vectors
-        for batch, i in pred_loader:
-            latent = self.model.to_latent(batch.cuda()).cpu().detach().numpy()
-            predbatches.append(kmeans.predict(latent))
-        predictions = np.concatenate(predbatches) #cluster of each point
-
-        incep = torch.zeros((self.num_clusters, ))
-        in_train=(self.trainer.datamodule.indicesS0 + self.trainer.datamodule.indicesS1).type(torch.bool)
-        for g in range(self.num_clusters): #get S0 and training S1 points in this cluster
-            incl = torch.bitwise_and(in_train, torch.tensor(predictions)==g)
-            if incl.sum() == 0: incep[g] = 1e10
-            else:
-                d = torch.utils.data.Subset(pred_loader.dataset, incl.nonzero(as_tuple=True)[0])
-                dl = DataLoader(d, batch_size=int(incl.sum()))
-                images, labels = next(iter(dl))
-                results = self.forward(images.cuda(), labels = labels.cuda())
-                self.train_inception.update(results[0].type(torch.uint8))
-                incep[g] = self.train_inception.compute()[0].item() #[mean, stdv]
-                self.train_inception.reset()
-
-        v = torch.zeros((len(pred_loader.dataset) ,))
-        print(incep)
-        worst = incep.argmax() #group with worst fid
-        v[predictions==worst] = 1
-        self.log('worst_cluster', worst)
-        self.clusters.append(predictions)
-        return v
 
     def lossS1(self):
         fit_loader = self.trainer.datamodule.train_dataloader()
@@ -236,6 +162,7 @@ class Model(pl.LightningModule):
         self.clusters.append(predictions)
         return v
 
+
     def analyzeClusters(self, clusters): #pass in JUST the available training data
         self.clusters.append(clusters)
         for c in range(self.num_clusters):
@@ -259,6 +186,7 @@ class Model(pl.LightningModule):
             self.availS1.append(s1)
             self.trainer.reset_train_dataloader(self)
 
+
     def on_train_end(self) -> None: #make grids of images for each cluster
         if self.params['S1func'] == 'none' or len(self.clusters) == 0: return
         os.makedirs(os.path.join(self.logger.log_dir, 'clusters'))
@@ -271,15 +199,10 @@ class Model(pl.LightningModule):
             for c in range(self.num_clusters):
                 # find index numbers of S0 points in the cluster
                 S0 = torch.tensor((predictions == c)[self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
-                # find index numbers of other points in the cluster (~ is not operator)
-                S1 = torch.tensor((predictions == c)[~self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
-                # choose up to 120 S0 indices
-                if len(S0) > 120:
-                    S0 = sample(S0, 120)
-                # fill remaining out of the 144 images with S1 images
-                if len(S1) > max(24, 144-len(S0)):
-                    S1 = sample(S1, max(24, 144-len(S0)))
-                idx = S0+S1
+                # choose up to 144 S0 indices
+                if len(S0) > 144:
+                    S0 = sample(S0, 144)
+                idx = S0
                 if len(idx)>0:
                     res = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
                     imgs = torch.stack([r[0] for r in res])
@@ -287,15 +210,44 @@ class Model(pl.LightningModule):
                     F.to_pil_image(grid).save(os.path.join(self.logger.log_dir, f'clusters/epoch{epoch}c{c}.png'))
 
                 avail = self.trainer.datamodule.indicesS0
-                if epoch > 0: avail = avail | self.availS1[epoch-1]
                 idx = torch.tensor((predictions == c)[avail]).nonzero(as_tuple=True)[0].tolist()
                 items = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
                 if len(items)>0:
                     labels = torch.stack([torch.tensor(i[1]) for i in items])
                     ids, counts = np.unique(labels, return_counts=True)
                 else: ids, counts = [], []
-                print(c, ids, counts)
+                color = sum([i < 5 for i in idx]) # just for debugging purpose on colormnist
+                print(c, ids, counts, color)
                 clusterlabelstr = clusterlabelstr + str(c) + '\t' + str(ids) + '\t' + str(counts) + '\n'
+
+                # for having S1 examples in the bottom 2 rows of the image:
+                # # find index numbers of S0 points in the cluster
+                # S0 = torch.tensor((predictions == c)[self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
+                # # find index numbers of other points in the cluster (~ is not operator)
+                # S1 = torch.tensor((predictions == c)[~self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
+                # # choose up to 120 S0 indices
+                # if len(S0) > 120:
+                #     S0 = sample(S0, 120)
+                # # fill remaining out of the 144 images with S1 images
+                # if len(S1) > max(24, 144-len(S0)):
+                #     S1 = sample(S1, max(24, 144-len(S0)))
+                # idx = S0+S1
+                # if len(idx)>0:
+                #     res = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
+                #     imgs = torch.stack([r[0] for r in res])
+                #     grid = vutils.make_grid(imgs, nrow=12)
+                #     F.to_pil_image(grid).save(os.path.join(self.logger.log_dir, f'clusters/epoch{epoch}c{c}.png'))
+
+                # avail = self.trainer.datamodule.indicesS0
+                # if epoch > 0: avail = avail | self.availS1[epoch-1]
+                # idx = torch.tensor((predictions == c)[avail]).nonzero(as_tuple=True)[0].tolist()
+                # items = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
+                # if len(items)>0:
+                #     labels = torch.stack([torch.tensor(i[1]) for i in items])
+                #     ids, counts = np.unique(labels, return_counts=True)
+                # else: ids, counts = [], []
+                # print(c, ids, counts)
+                # clusterlabelstr = clusterlabelstr + str(c) + '\t' + str(ids) + '\t' + str(counts) + '\n'
         
         with open(os.path.join(self.logger.log_dir, 'clusters', 'labels.txt'), 'w') as f:
             f.write(clusterlabelstr)
@@ -313,20 +265,11 @@ class Model(pl.LightningModule):
                                             batch_idx = batch_idx)
 
         self.log_dict({f"val_{key}": val.item() for key, val in val_loss.items()}, sync_dist=True)
-        # self.val_fid.update(real_img.type(torch.uint8), real=True)
-        # self.val_fid.update(results[0].type(torch.uint8), real=False)
+        self.log("val_L1_distance", self.l1difference(results[0], results[1]))
 
         
     def on_validation_epoch_end(self) -> None:
         samples = self.sample_images()[1] #saves images to file
-        # samples = 255*self.model.sample(128, self.curr_device)
-        # self.val_inception.update(samples.type(torch.uint8))
-
-        # imean, istd = self.val_inception.compute()
-        # self.log('val_inception_mean', imean.item())
-        # self.log('val_inception_stdv', istd.item())
-
-        # self.log('val_frechet', self.val_fid.compute().item())
 
 
     def on_test_start(self) -> None:
@@ -384,6 +327,7 @@ class Model(pl.LightningModule):
             if tofile:
                 pass
             return recons, None, test_input
+
 
     def configure_optimizers(self):
         return self.model.configure_optimizers(self.params)

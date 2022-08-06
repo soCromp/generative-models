@@ -102,6 +102,41 @@ class GTSRB(Dataset):
         return img, self.meta.ClassId[idx] # dummy datat to prevent breaking 
 
 
+class coloredMNIST(Dataset):
+    def __init__(self, dir, split, transform, deterministic=False, S0size=1000, flipSize=5):
+        self.transform = transform
+        dataset = MNIST(dir, train=(split=='train'), transform=transform, download=True)
+        images = dataset.data
+        self.labels = dataset.targets
+        e = 0.05 #probability of unusual color
+        print(images.shape)
+
+        if deterministic: torch.manual_seed(1)
+
+        def torch_bernoilli(p, size):
+            return (torch.rand(size) < p).float()
+        flip = torch_bernoilli(e, len(self.labels)) # 1 means the example will be the unusual color
+
+        if deterministic:
+            self.manualS0indices = torch.tensor(range(S0size), dtype=torch.long) #the examples' labels are already in a randomized order, so this is ok
+            print(self.manualS0indices)
+            flip[flipSize:S0size] = 0
+            flip[:flipSize] = 1
+
+        images = torch.stack([images, images, images], dim=1) #makes 3-channel images in a new dimension 1
+        # dimension 0 is number of images, 1 is channels, 2 and 3 are image dimensions
+        images[torch.tensor(range(len(images))), (1-flip).long(), :, :] *= 0
+        self.images = images.float()   
+
+
+    def __len__(self): 
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return self.transform(self.images[idx]), self.labels[idx]
+        # return self.transform(torch.squeeze(self.images[idx])), self.labels[idx]
+
+
 class Dataset(LightningDataModule):
     """
     PyTorch Lightning data module 
@@ -143,6 +178,8 @@ class Dataset(LightningDataModule):
         self.pin_memory = pin_memory
 
     def setup(self, stage: Optional[str] = None) -> None:
+        deterministicS0 = False #implemented only for color mnist! otherwise will be non-deterministic
+        
         if self.name.lower() == 'oxfordpets':
                 train_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
                                                       transforms.CenterCrop(self.patch_size),
@@ -205,7 +242,7 @@ class Dataset(LightningDataModule):
         elif self.name.lower() == 'gtsrb':
             trans = transforms.Compose([transforms.CenterCrop(32),
                                         transforms.Resize(self.patch_size),
-                                        transforms.ToTensor(),])
+                                        transforms.ToTensor(),])  
             
             self.train_dataset_all = GTSRB(
                 self.data_dir,
@@ -218,19 +255,41 @@ class Dataset(LightningDataModule):
                 transform = trans
             )
 
+        elif self.name.lower() == 'coloredmnist':
+            trans = transforms.Compose([transforms.Resize(self.patch_size),])
+                                        # transforms.ToTensor()])
+
+            self.train_dataset_all = coloredMNIST(
+                self.data_dir,
+                split = 'train',
+                transform = trans,
+                deterministic = deterministicS0,
+                S0size = self.num_samples,
+                flipSize=5
+            )
+            self.val_dataset = coloredMNIST(
+                self.data_dir,
+                split = 'test',
+                transform = trans
+            )
+
 
         if self.num_samples > 0:
             # generate random list and take top num_samples values as 1, all others as 0. These are S0 indices
-            randy = torch.rand(size=(len(self.train_dataset_all), ))
+            if not deterministicS0:
+                randy = torch.rand(size=(len(self.train_dataset_all), ))
+                indices = torch.topk(randy, self.num_samples)[1] #actual index numbers
+            else:
+                indices = self.train_dataset_all.manualS0indices #only implemented for colored mnist!
             self.indicesS0 = torch.zeros(size=(len(self.train_dataset_all), ), dtype=torch.bool)
-            indices = torch.topk(randy, self.num_samples)[1] #actual index numbers
             self.indicesS0[indices] = 1 #one-hot
             self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), ), dtype=torch.bool) #init to all zeroes
             # self.indicesS0.nonzero(as_tuple=True)[0] #to recover the index numbers off the one-hot
 
             self.S0 = torch.utils.data.Subset(self.train_dataset_all, indices)
             self.train_dataset = self.S0 #initially just use S0
-        else: self.train_dataset = self.train_dataset_all
+        else: 
+            self.train_dataset = self.train_dataset_all
 
     def v_update(self, v, k):
         """Remove any old S1 points from training, choose the top k points from the S1 set via criteria v (v is list of numbers/scores),
