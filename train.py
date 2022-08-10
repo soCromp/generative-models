@@ -69,9 +69,13 @@ data.setup()
 print(len(data.train_dataset_all))
 
 Path(tb_logger.log_dir).mkdir(parents=True, exist_ok=True)
-with open(tb_logger.log_dir+'/hparams.txt', 'w') as f:
-    f.write('-------hyperparameters-------\n')
+# with open(tb_logger.log_dir+'/hparams.txt', 'w') as f:
+#     f.write('-------hyperparameters-------\n')
+#     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
+#     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
+with open(tb_logger.log_dir+'/modelconfig.json', 'w') as f:
     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
+with open(tb_logger.log_dir+'/dataconfig.json', 'w') as f:
     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
 
 runner = Trainer(logger=tb_logger,

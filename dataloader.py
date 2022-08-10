@@ -35,10 +35,9 @@ class MyCelebA(CelebA):
     def __getitem__(self, index: int):
         item = super().__getitem__(index)
         img, label = item[0], item[1]
-        if self.transform is not None:
-            img = self.transform(img)
-        if self.target_transform is not None:
-            label = self.target_transform(label)
+        #super() handles the transforms
+        # if self.target_transform is not None:
+        #     label = self.target_transform(label)
         return img, label
     
     def _check_integrity(self) -> bool:
@@ -205,12 +204,7 @@ class Dataset(LightningDataModule):
 
                 
         elif self.name.lower() == 'celeba':
-            train_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
-                                                transforms.CenterCrop(148),
-                                                transforms.Resize(self.patch_size),
-                                                transforms.ToTensor(),])
-            
-            val_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
+            trans = transforms.Compose([transforms.RandomHorizontalFlip(),
                                                 transforms.CenterCrop(148),
                                                 transforms.Resize(self.patch_size),
                                                 transforms.ToTensor(),])
@@ -218,7 +212,7 @@ class Dataset(LightningDataModule):
             self.train_dataset_all = MyCelebA(
                 self.data_dir,
                 split='train',
-                transform=train_transforms,
+                transform=trans,
                 download=True,
             )
             
@@ -226,7 +220,7 @@ class Dataset(LightningDataModule):
             self.val_dataset = MyCelebA(
                 self.data_dir,
                 split='test',
-                transform=val_transforms,
+                transform=trans,
                 download=True,
             )
 
@@ -279,6 +273,7 @@ class Dataset(LightningDataModule):
             if not deterministicS0:
                 randy = torch.rand(size=(len(self.train_dataset_all), ))
                 indices = torch.topk(randy, self.num_samples)[1] #actual index numbers
+                indices = [i.item() for i in indices]
             else:
                 indices = self.train_dataset_all.manualS0indices #only implemented for colored mnist!
             self.indicesS0 = torch.zeros(size=(len(self.train_dataset_all), ), dtype=torch.bool)

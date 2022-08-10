@@ -187,73 +187,6 @@ class Model(pl.LightningModule):
             self.trainer.reset_train_dataloader(self)
 
 
-    def on_train_end(self) -> None: #make grids of images for each cluster
-        if self.params['S1func'] == 'none' or len(self.clusters) == 0: return
-        os.makedirs(os.path.join(self.logger.log_dir, 'clusters'))
-        print('label distribution per cluster in each epoch\ncluster\tlabels\tcounts')
-        clusterlabelstr = 'label distribution per cluster in each epoch\ncluster\tlabels\tcounts\n'
-        for epoch in range(self.trainer.max_epochs):
-            print(epoch)
-            clusterlabelstr = clusterlabelstr + str(epoch) + '\n'
-            predictions = self.clusters[epoch]
-            for c in range(self.num_clusters):
-                # find index numbers of S0 points in the cluster
-                S0 = torch.tensor((predictions == c)[self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
-                # choose up to 144 S0 indices
-                if len(S0) > 144:
-                    S0 = sample(S0, 144)
-                idx = S0
-                if len(idx)>0:
-                    res = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
-                    imgs = torch.stack([r[0] for r in res])
-                    grid = vutils.make_grid(imgs, nrow=12)
-                    F.to_pil_image(grid).save(os.path.join(self.logger.log_dir, f'clusters/epoch{epoch}c{c}.png'))
-
-                avail = self.trainer.datamodule.indicesS0
-                idx = torch.tensor((predictions == c)[avail]).nonzero(as_tuple=True)[0].tolist()
-                items = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
-                if len(items)>0:
-                    labels = torch.stack([torch.tensor(i[1]) for i in items])
-                    ids, counts = np.unique(labels, return_counts=True)
-                else: ids, counts = [], []
-                color = sum([i < 5 for i in idx]) # just for debugging purpose on colormnist
-                print(c, ids, counts, color)
-                clusterlabelstr = clusterlabelstr + str(c) + '\t' + str(ids) + '\t' + str(counts) + '\n'
-
-                # for having S1 examples in the bottom 2 rows of the image:
-                # # find index numbers of S0 points in the cluster
-                # S0 = torch.tensor((predictions == c)[self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
-                # # find index numbers of other points in the cluster (~ is not operator)
-                # S1 = torch.tensor((predictions == c)[~self.trainer.datamodule.indicesS0]).nonzero(as_tuple=True)[0].tolist()
-                # # choose up to 120 S0 indices
-                # if len(S0) > 120:
-                #     S0 = sample(S0, 120)
-                # # fill remaining out of the 144 images with S1 images
-                # if len(S1) > max(24, 144-len(S0)):
-                #     S1 = sample(S1, max(24, 144-len(S0)))
-                # idx = S0+S1
-                # if len(idx)>0:
-                #     res = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
-                #     imgs = torch.stack([r[0] for r in res])
-                #     grid = vutils.make_grid(imgs, nrow=12)
-                #     F.to_pil_image(grid).save(os.path.join(self.logger.log_dir, f'clusters/epoch{epoch}c{c}.png'))
-
-                # avail = self.trainer.datamodule.indicesS0
-                # if epoch > 0: avail = avail | self.availS1[epoch-1]
-                # idx = torch.tensor((predictions == c)[avail]).nonzero(as_tuple=True)[0].tolist()
-                # items = [self.trainer.datamodule.train_dataset_all[i] for i in idx]
-                # if len(items)>0:
-                #     labels = torch.stack([torch.tensor(i[1]) for i in items])
-                #     ids, counts = np.unique(labels, return_counts=True)
-                # else: ids, counts = [], []
-                # print(c, ids, counts)
-                # clusterlabelstr = clusterlabelstr + str(c) + '\t' + str(ids) + '\t' + str(counts) + '\n'
-        
-        with open(os.path.join(self.logger.log_dir, 'clusters', 'labels.txt'), 'w') as f:
-            f.write(clusterlabelstr)
-        print('done')
-
-
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
         real_img, labels = batch
         self.curr_device = real_img.device
@@ -283,6 +216,7 @@ class Model(pl.LightningModule):
         self.test_inception.update((255*samples).type(torch.uint8))
         self.test_fid.update(recons.type(torch.uint8), real=False)
         self.test_fid.update(origs.type(torch.uint8), real=True)
+        self.log("test_L1_distance", self.l1difference(origs, recons))
 
 
     def on_test_epoch_end(self) -> None:
