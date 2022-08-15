@@ -102,13 +102,13 @@ class GTSRB(Dataset):
 
 
 class coloredMNIST(Dataset):
+    
     def __init__(self, dir, split, transform, deterministic=False, S0size=1000, flipSize=5):
         self.transform = transform
-        dataset = MNIST(dir, train=(split=='train'), transform=transform, download=True)
+        dataset = MNIST(dir, train=(split=='train'), download=True)
         images = dataset.data
         self.labels = dataset.targets
         e = 0.05 #probability of unusual color
-        print(images.shape)
 
         if deterministic: torch.manual_seed(1)
 
@@ -122,18 +122,17 @@ class coloredMNIST(Dataset):
             flip[flipSize:S0size] = 0
             flip[:flipSize] = 1
 
+        images = self.transform(images)
         images = torch.stack([images, images, images], dim=1) #makes 3-channel images in a new dimension 1
         # dimension 0 is number of images, 1 is channels, 2 and 3 are image dimensions
         images[torch.tensor(range(len(images))), (1-flip).long(), :, :] *= 0
-        self.images = images.float()   
-
+        self.images = images.byte()  
 
     def __len__(self): 
         return len(self.labels)
 
     def __getitem__(self, idx):
-        return self.transform(self.images[idx]), self.labels[idx]
-        # return self.transform(torch.squeeze(self.images[idx])), self.labels[idx]
+        return self.images[idx], self.labels[idx]
 
 
 class Dataset(LightningDataModule):
