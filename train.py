@@ -82,7 +82,7 @@ runner = Trainer(logger=tb_logger,
                 log_every_n_steps=1,
                  callbacks=[
                      LearningRateMonitor(),
-                     ModelCheckpoint(save_top_k=1, #save the one best model 
+                     ModelCheckpoint(save_top_k=-1, #save the one best model with 1 or all models with -1
                                      dirpath =os.path.join(tb_logger.log_dir , "checkpoints"), 
                                      monitor= "val_loss",
                                      save_last= True),

@@ -8,6 +8,7 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import CelebA, MNIST
+from torchvision.transforms.functional import convert_image_dtype
 import pandas as pd
 
 
@@ -126,7 +127,8 @@ class coloredMNIST(Dataset):
         images = torch.stack([images, images, images], dim=1) #makes 3-channel images in a new dimension 1
         # dimension 0 is number of images, 1 is channels, 2 and 3 are image dimensions
         images[torch.tensor(range(len(images))), (1-flip).long(), :, :] *= 0
-        self.images = images.byte()  
+        # self.images = images.byte().float()
+        self.images = convert_image_dtype(images)
 
     def __len__(self): 
         return len(self.labels)
@@ -215,7 +217,6 @@ class Dataset(LightningDataModule):
                 download=True,
             )
             
-            # Replace CelebA with your dataset
             self.val_dataset = MyCelebA(
                 self.data_dir,
                 split='test',
