@@ -66,17 +66,15 @@ else:
 experiment = Model(model, modelconfig['exp_params'])
 data = Dataset(**dataconfig, pin_memory=len(modelconfig['trainer_params']['gpus']) != 0)
 data.setup()
-print(len(data.train_dataset_all))
 
 Path(tb_logger.log_dir).mkdir(parents=True, exist_ok=True)
-# with open(tb_logger.log_dir+'/hparams.txt', 'w') as f:
-#     f.write('-------hyperparameters-------\n')
-#     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
-#     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
 with open(tb_logger.log_dir+'/modelconfig.json', 'w') as f:
     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
 with open(tb_logger.log_dir+'/dataconfig.json', 'w') as f:
     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
+with open(tb_logger.log_dir+'/s0indices', 'w') as f:
+    f.write(data.indicesS0)
+    f.write('\n')
 
 runner = Trainer(logger=tb_logger,
                 log_every_n_steps=1,

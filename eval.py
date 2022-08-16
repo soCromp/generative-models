@@ -20,18 +20,17 @@ ts = time.time()
 parser = argparse.ArgumentParser(description='Generic experiment driver')
 # parser.add_argument('--test', '-t', help='True if wish to use test set, false for validation set', default=False)
 parser.add_argument('--path', '-p', help='Path to log directory of model you want to evaluate (i.e. .../version_X')
-parser.add_argument('--modelconfig', '-m', help='yaml file of model hyperparameters if they are not included in logdir', default=None) #optional
-parser.add_argument('--dataconfig', '-d', help='yaml file of dataset settings if they are not included in logdir', default=None) #optional
+parser.add_argument('--epoch', '-e', help='Epoch of checkpoint you want (default is -1, ie last epoch)', default=-1, type=int)
 args = parser.parse_args()
 
 # interpret given hyperparameters
-with open(args.modelconfig, 'r') as file:
+with open(os.path.join(args.path, 'modelconfig.json'), 'r') as file:
     try:
         modelconfig = yaml.safe_load(file)
     except yaml.YAMLError as exc:
         print(exc)
 
-with open(args.dataconfig, 'r') as file:
+with open(os.path.join(args.path, 'dataconfig.json'), 'r') as file:
     try:
         dataconfig = yaml.safe_load(file)
         modelconfig['model_params']['in_channels'] = dataconfig['in_channels']
@@ -42,9 +41,14 @@ with open(args.dataconfig, 'r') as file:
 data = Dataset(**dataconfig, pin_memory=True)#use GPU
 data.setup()
 
-# find desired (best) checkpoint
-ckpt = os.path.join(args.path, 'checkpoints', sorted(os.listdir(os.path.join(args.path, 'checkpoints')))[-2])
-print(ckpt)
+if args.epoch == -1:
+    print('Will use checkpoint last.ckpt')
+    ckpt = os.path.join(args.path, 'checkpoints/last.ckpt')
+else:
+    d = os.listdir(os.path.join(args.path, 'checkpoints')) # epoch=0....ckpt, epoch=1....ckpt, ...., last.ckpt
+    checkpoint_name = [ckpt for ckpt in d if ckpt.startswith(f'epoch={args.epoch}-')][0]
+    print('Will use checkpoint', checkpoint_name)
+    ckpt = os.path.join(args.path, f'checkpoints/{checkpoint_name}')
 
 # set up model
 name=modelconfig['model_params']['name']
