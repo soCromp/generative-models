@@ -33,6 +33,7 @@ with open(args.dataconfig, 'r') as file:
         modelconfig['model_params']['in_channels'] = dataconfig['in_channels']
         modelconfig['model_params']['patch_size'] = dataconfig['in_channels']
         modelconfig['model_params']['num_classes'] = dataconfig['num_classes']
+        modelconfig['exp_params']['max_epochs'] = modelconfig['trainer_params']['max_epochs']
     except yaml.YAMLError as exc:
         print(exc)
 
@@ -72,9 +73,11 @@ with open(tb_logger.log_dir+'/modelconfig.json', 'w') as f:
     f.write(simplejson.dumps(modelconfig, indent=4)+'\n')
 with open(tb_logger.log_dir+'/dataconfig.json', 'w') as f:
     f.write(simplejson.dumps(dataconfig, indent=4)+'\n')
-with open(tb_logger.log_dir+'/s0indices', 'w') as f:
-    f.write(data.indicesS0)
-    f.write('\n')
+try:
+    with open(tb_logger.log_dir+'/s0indices', 'w') as f:
+        f.write(data.indicesS0)
+        f.write('\n')
+except: 0
 
 runner = Trainer(logger=tb_logger,
                 log_every_n_steps=1,

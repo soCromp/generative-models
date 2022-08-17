@@ -17,6 +17,7 @@ from torchmetrics.image.fid import FrechetInceptionDistance
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans, KMeans
 from random import sample
+import math
 import shutil
 
 class Model(pl.LightningModule):
@@ -27,7 +28,7 @@ class Model(pl.LightningModule):
         self.model = model
         self.params = params
         S1funcs = {'random': self.randomS1, 'rarest': self.rarestS1, 'loss': self.lossS1, 'none': None}
-        try:
+        try: #clustering setup
             self.S1func = S1funcs[self.params['S1func']]
             self.k = self.params['k']
             self.clusters = [] # predicted cluster for each point in each epoch
@@ -36,6 +37,12 @@ class Model(pl.LightningModule):
         except:
             self.S1func = None
 
+        try: 
+            self.active = self.params['active'] #whether to use active learning
+            self.edmu = torch.zeros((self.model.latent_dims, self.params['max_epochs']))
+            self.edvr = torch.zeros(self.edmu.shape)
+        except: self.active = False
+        
         self.l1difference = torch.nn.L1Loss()
 
         self.curr_device = None
@@ -185,7 +192,49 @@ class Model(pl.LightningModule):
             s1 = self.trainer.datamodule.v_update(v, self.k)  #returns 1hot vector of chosen S1 points
             self.availS1.append(s1)
             self.trainer.reset_train_dataloader(self)
+        
+        if self.active:
+            n = 100
+            traindata = self.trainer.datamodule.train_dataset_all
+            # choose random subset of n samples
+            randy = torch.rand(size=(len(traindata), ))
+            indices = [i.item() for i in torch.topk(randy, n)[1]] #actual index numbers
+            inputdata = torch.utils.data.Subset(traindata, indices)
+            input = DataLoader(inputdata, 
+                                batch_size=n, # revisit
+                                num_workers=4,
+                                shuffle=False,
+                                pin_memory=True)
 
+            # get each example's distribution info for current epoch
+            mulist = []
+            logvarlist = []
+            for b, _ in input:
+                res = self.model.forward(b.cuda())
+                mulist.append(res[2])
+                logvarlist.append(res[3])
+            exmu = torch.cat(mulist).cpu().detach() # n x latent_dims
+            exvar = math.e ** torch.cat(logvarlist).cpu().detach() # n x latent_dims
+
+            # calculate each dimension's mixture distribution
+            D = self.model.latent_dims
+            for dim in range(D): # get distrib info for each dimension - probably could tensorize this
+                mean = exmu[:,dim].sum()/D #mixture distribution
+                v = (exvar[:,dim] + exmu[:,dim]**2).sum()/D - mean**2
+                self.edmu[dim, self.trainer.current_epoch] = mean
+                self.edvr[dim, self.trainer.current_epoch] = v
+
+            # help a dimension
+            if self.trainer.current_epoch > 0:
+                change = torch.abs((self.edvr[:, self.trainer.current_epoch]-self.edvr[:, self.trainer.current_epoch-1]) / self.edvr[:, self.trainer.current_epoch-1])
+                help = change.argmax().item()
+                print(help, 'chosen to help')
+
+    def help_distributed(dim):
+        return NotImplementedError
+        # get S1 sample
+        # find exs' latent distributions in dimension dim
+        # choose examples closest to mean, +/- 1 and 2 stdevs from mean and near outliers
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
         real_img, labels = batch
