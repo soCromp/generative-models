@@ -16,9 +16,10 @@ from torchmetrics.image.inception import InceptionScore
 from torchmetrics.image.fid import FrechetInceptionDistance
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans, KMeans
-from random import sample
+from random import sample, choices
 import math
-import shutil
+import scipy.stats as ss
+import statistics
 
 class Model(pl.LightningModule):
     def __init__(self,
@@ -41,9 +42,12 @@ class Model(pl.LightningModule):
             self.active = self.params['active'] #whether to use active learning
             self.edmu = torch.zeros((self.model.latent_dims, self.params['max_epochs']))
             self.edvr = torch.zeros(self.edmu.shape)
+            self.help = []
         except: self.active = False
         
-        self.l1difference = torch.nn.L1Loss()
+        self.val_l1difference = torch.nn.L1Loss()
+        # self.val_inception = InceptionScore().cuda()
+        # self.val_fid = FrechetInceptionDistance().cuda()
 
         self.curr_device = None
         self.hold_graph = False
@@ -194,14 +198,14 @@ class Model(pl.LightningModule):
             self.trainer.reset_train_dataloader(self)
         
         if self.active:
-            n = 100
-            traindata = self.trainer.datamodule.train_dataset_all
+            traindata = self.trainer.datamodule.train_dataset
+            n = len(traindata)
             # choose random subset of n samples
             randy = torch.rand(size=(len(traindata), ))
             indices = [i.item() for i in torch.topk(randy, n)[1]] #actual index numbers
             inputdata = torch.utils.data.Subset(traindata, indices)
             input = DataLoader(inputdata, 
-                                batch_size=n, # revisit
+                                batch_size=64, # revisit
                                 num_workers=4,
                                 shuffle=False,
                                 pin_memory=True)
@@ -219,22 +223,91 @@ class Model(pl.LightningModule):
             # calculate each dimension's mixture distribution
             D = self.model.latent_dims
             for dim in range(D): # get distrib info for each dimension - probably could tensorize this
-                mean = exmu[:,dim].sum()/D #mixture distribution
-                v = (exvar[:,dim] + exmu[:,dim]**2).sum()/D - mean**2
+                mean = exmu[:,dim].sum()/n #mixture distribution
+                v = (exvar[:,dim] + exmu[:,dim]**2).sum()/n - mean**2
                 self.edmu[dim, self.trainer.current_epoch] = mean
                 self.edvr[dim, self.trainer.current_epoch] = v
 
             # help a dimension
-            if self.trainer.current_epoch > 0:
-                change = torch.abs((self.edvr[:, self.trainer.current_epoch]-self.edvr[:, self.trainer.current_epoch-1]) / self.edvr[:, self.trainer.current_epoch-1])
-                help = change.argmax().item()
+            if self.trainer.current_epoch > 0 and self.trainer.current_epoch <= 32:
+                # change = torch.abs((self.edvr[:, self.trainer.current_epoch]-self.edvr[:, self.trainer.current_epoch-1]) / self.edvr[:, self.trainer.current_epoch-1])
+                # help = change.argmax().item()
+                varvar = statistics.variance(self.edvr[:, self.trainer.current_epoch].numpy())
+                varmean = statistics.mean(self.edvr[:, self.trainer.current_epoch].numpy())
+                help = torch.abs(self.edvr[:, self.trainer.current_epoch] - varvar).argmax().item()
                 print(help, 'chosen to help')
+                self.help.append(help)
 
-    def help_distributed(dim):
-        return NotImplementedError
-        # get S1 sample
-        # find exs' latent distributions in dimension dim
-        # choose examples closest to mean, +/- 1 and 2 stdevs from mean and near outliers
+                # get S1 sample
+                s1data = self.trainer.datamodule.train_dataset_all
+                k = min([10000, len(s1data)])
+                randy = torch.rand(size=(len(s1data), ))
+                randy[self.trainer.datamodule.indicesS0] = 0
+                randy[self.trainer.datamodule.indicesS1] = 0
+                indices = [i.item() for i in torch.topk(randy, k)[1]] #actual index numbers
+                inputdata = torch.utils.data.Subset(s1data, indices)
+                input = DataLoader(inputdata, 
+                                    batch_size=64, # revisit
+                                    num_workers=4,
+                                    shuffle=False,
+                                    pin_memory=True)
+
+                # find exs' latent distributions in dimension dim
+                mulist = []
+                logvarlist = []
+                for b, _ in input:
+                    res = self.model.forward(b.cuda())
+                    mulist.append(res[2].cpu())
+                    logvarlist.append(res[3].cpu())
+                exmu = torch.cat(mulist)[:, help].detach() 
+                exvar = math.e ** torch.cat(logvarlist)[:, help].detach() 
+
+                exmu_sort, exmu_sortinds = torch.sort(exmu) # sort ex mus, keeping track of original ordering
+                # transform to z-scores
+                helpmean = self.edmu[dim, self.trainer.current_epoch]
+                helpstdev = self.edvr[dim, self.trainer.current_epoch].abs()**0.5
+                exz = (exmu_sort - helpmean) / helpstdev
+
+                q = 250 # number of samples to add (revisit)
+                if self.edvr[help, self.trainer.current_epoch] < varmean: # increase its variance by adding outliers
+                    chosen = self.help_outliers(exmu_sortinds, exz, q) # returns indices of 'inputdata'
+                else:
+                    chosen = self.help_mean(exmu_sortinds, exz, q)
+                add = torch.Tensor(indices).index_select(0, torch.Tensor(chosen).int()) # actual index numbers from s1data of chosen examples
+                onehot = torch.zeros(size=(len(s1data), ), dtype=torch.long)
+                onehot[add.long()]=1
+                self.trainer.datamodule.v_add(onehot, q)
+                self.trainer.reset_train_dataloader(self)
+            # print(len(self.trainer.datamodule.train_dataset))
+
+
+    def help_distributed(self, exind, exz, q):
+        # sample according to normal distribution defined by dim's mixture distribution's mean/var
+        # dim is dimension to help, exs is examples' z-scores in that dimension
+        cum_weights = ss.norm.cdf(exz) # normal function CDF
+        chosen = choices(exind, cum_weights=cum_weights, k=q) # caution: this samples with replacement
+        return list(set(chosen))
+
+    def help_outliers(self, exind, exz, q):
+        # sample from extremes of the dim's mixture distribution
+        chosen = torch.cat([exind[:q//2], exind[:-q//2]], dim=0) # works since it's sorted
+        return chosen.float()
+
+    def help_mean(self, exind, exz, q):
+        # find points closest to mean (z of 0)
+        chosen = torch.topk(-torch.absolute(exz), k=q)[1].cpu()
+        return chosen.float()
+
+    def help_random(self, exind, exz, q):
+        chosen = torch.topk(torch.rand_like(exz))[1]
+        return chosen.float()
+
+
+    # def on_train_end(self):
+    #     if self.active:
+    #         with open(os.path.join(self.logger.save_dir, 'helped.csv'), 'w') as f:
+    #             f.write(','.join([l.item() for l in list(self.help)])+'\n')
+
 
     def validation_step(self, batch, batch_idx, optimizer_idx = 0):
         real_img, labels = batch
@@ -242,22 +315,33 @@ class Model(pl.LightningModule):
 
         results = self.forward(real_img, labels = labels, optimizer_idx=optimizer_idx) #[output, input, intermediates...]
         val_loss = self.model.loss_function(*results,
-                                            kld_weight = 1.0, #real_img.shape[0]/ self.num_val_imgs, #for VAEs
+                                            **self.params, #real_img.shape[0]/ self.num_val_imgs, #for VAEs
                                             optimizer_idx = optimizer_idx,
                                             batch_idx = batch_idx)
 
-        self.log_dict({f"val_{key}": val.item() for key, val in val_loss.items()}, sync_dist=True)
-        self.log("val_L1_distance", self.l1difference(results[0], results[1]))
+        # self.val_fid.update(results[0].type(torch.uint8), real=False)
+        # self.val_fid.update(results[1].type(torch.uint8), real=True)
 
-        
+        # samples = self.model.sample(64, self.curr_device)
+        # self.val_inception.update((255*samples).type(torch.uint8))
+
+        self.log_dict({f"val_{key}": val.item() for key, val in val_loss.items()}, sync_dist=True, on_step=False, on_epoch=True)
+        self.log("val_L1_distance", self.val_l1difference(results[0], results[1]), on_step=False, on_epoch=True)
+
+
     def on_validation_epoch_end(self) -> None:
         samples = self.sample_images()[1] #saves images to file
+        # imean, istd = self.val_inception.compute()
+        # self.log('val_inception_mean', imean.item())
+        # self.log('val_inception_stdv', istd.item())
+        # self.log('val_frechet', self.val_fid.compute().item())
 
 
     def on_test_start(self) -> None:
         self.test_inception = InceptionScore().cuda()
         self.test_fid = FrechetInceptionDistance().cuda()
-
+        self.test_l1difference = torch.nn.L1Loss()
+        
 
     def test_step(self, batch, batch_idx) -> None:
         recons, samples, origs = self.sample_images(batch, tofile=False, num_samples=64)
@@ -265,7 +349,7 @@ class Model(pl.LightningModule):
         self.test_inception.update((255*samples).type(torch.uint8))
         self.test_fid.update(recons.type(torch.uint8), real=False)
         self.test_fid.update(origs.type(torch.uint8), real=True)
-        self.log("test_L1_distance", self.l1difference(origs, recons))
+        self.log("test_L1_distance", self.test_l1difference(origs, recons))
 
 
     def on_test_epoch_end(self) -> None:
@@ -288,7 +372,7 @@ class Model(pl.LightningModule):
         recons = recons / recons.max()
         if tofile:
             vutils.save_image(recons.data,
-                            os.path.join(self.logger.log_dir , 
+                            os.path.join(self.logger.save_dir , 
                                         "Reconstructions", 
                                         f"recons_{self.logger.name}_Epoch_{self.current_epoch}.png"),
                             normalize=True,
@@ -300,7 +384,7 @@ class Model(pl.LightningModule):
                                         labels = test_label)
             if tofile:
                 vutils.save_image(samples.cpu().data,
-                                os.path.join(self.logger.log_dir , 
+                                os.path.join(self.logger.save_dir , 
                                             "Samples",      
                                             f"{self.logger.name}_Epoch_{self.current_epoch}.png"),
                                 normalize=True,

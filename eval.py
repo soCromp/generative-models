@@ -9,7 +9,7 @@ from model import Model
 from pytorch_lightning import Trainer
 import yaml
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import WandbLogger
 from pathlib import Path
 from dataloader import Dataset
 from pytorch_lightning.strategies.ddp import DDPStrategy
@@ -74,18 +74,19 @@ experiment.load_from_checkpoint(ckpt, model=model.cuda(), params=modelconfig['ex
 version = args.path.split('/')[-1]
 logdir = '/'.join(args.path.split('/')[:-1])
 print(logdir, version)
-tb_logger =  TensorBoardLogger(save_dir=logdir, name=None, version=version)
+id = sorted(os.listdir(os.path.join(args.path, 'wandb/latest-run')))[2][4:-6] #pulls id from file eg run-1cxm3z9c.wandb
+logger =  WandbLogger(id=id, resume='must')
 
-trainer = Trainer(gpus=[0], logger=tb_logger, log_every_n_steps=1,)#https://pytorch-lightning.readthedocs.io/en/stable/common/checkpointing.html#checkpoint-loading
+trainer = Trainer(gpus=[0], logger=logger, log_every_n_steps=1,)#https://pytorch-lightning.readthedocs.io/en/stable/common/checkpointing.html#checkpoint-loading
 
 trainer.test(model=experiment, dataloaders=data.val_dataloader())
 
-tb_logger.save()
+logger.save()
 
 te = time.time()
 msg = f'Location: {os.environ["SSH_CLIENT"]}\nStart time: {time.ctime(ts)}\nEnd time: {time.ctime(te)}\nDuration: {(te-ts)//60} minutes or {(te-ts)//3600} hours\n\n'+\
     f'Model metadata: {simplejson.dumps(modelconfig, indent=4)}\nData metadata: {simplejson.dumps(dataconfig, indent=4)}'
-sbj = f'Finished evaluating {tb_logger.log_dir}!'
+sbj = f'Finished evaluating {logger.save_dir}!'
 
 try:    
     import sys

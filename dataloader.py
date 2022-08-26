@@ -293,11 +293,22 @@ class Dataset(LightningDataModule):
         self.train_dataset = torch.utils.data.ConcatDataset([self.S0, self.S1selected])
         return self.indicesS1
 
+    def v_add(self, v, k):
+        """Without removing old S1 points from training, choose the top k points from the S1 set via criteria v (v is list of numbers/scores),
+        add these points to the training set and then return an updated train dataloader"""
+        vpick = v
+        vpick[self.indicesS0] = -1e10
+        vpick[self.indicesS1] = -1e10
+        self.indicesS1[torch.topk(vpick, k)[1]] = 1 #one-hot
+        self.S1selected = torch.utils.data.Subset(self.train_dataset_all, self.indicesS1.nonzero(as_tuple=True)[0])
+        self.train_dataset = torch.utils.data.ConcatDataset([self.S0, self.S1selected])
+        return self.indicesS1
+
     def S1(self, v, k):
         # make a list with S0 indices' elements set to -Inf, all others by 1. Multiply by random numbers and choose top k to get 
         # indices of S1 to add to S0
         vpick = v
-        vpick[self.indicesS0]= -1e25
+        vpick[self.indicesS0]= -1e10
         self.indicesS1 = torch.zeros(size=(len(self.train_dataset_all), ), dtype=torch.bool)
         self.indicesS1[torch.topk(vpick, k)[1]] = 1 #one-hot
         self.S1selected = torch.utils.data.Subset(self.train_dataset_all, self.indicesS1.nonzero(as_tuple=True)[0])
