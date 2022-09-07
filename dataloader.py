@@ -1,4 +1,5 @@
 import os
+from tkinter.ttk import LabeledScale
 import torch
 from torch import Tensor
 from pathlib import Path
@@ -104,24 +105,26 @@ class GTSRB(Dataset):
 
 class coloredMNIST(Dataset):
     
-    def __init__(self, dir, split, transform, deterministic=False, S0size=1000, flipSize=5):
+    def __init__(self, dir, split, transform, deterministic=False, S0size=1000):
         self.transform = transform
         dataset = MNIST(dir, train=(split=='train'), download=True)
         images = dataset.data
         self.labels = dataset.targets
-        e = 0.05 #probability of unusual color
+        pu = 0.05 #probability of unusual color
 
-        if deterministic: torch.manual_seed(1)
+        if deterministic: 
+            torch.manual_seed(1)
+            print('deterministic coloredMNIST mode')
 
         def torch_bernoilli(p, size):
             return (torch.rand(size) < p).float()
-        flip = torch_bernoilli(e, len(self.labels)) # 1 means the example will be the unusual color
+        flip = torch_bernoilli(pu, len(self.labels)) # 1 means the example will be the unusual color
 
         if deterministic:
-            self.manualS0indices = torch.tensor(range(S0size), dtype=torch.long) #the examples' labels are already in a randomized order, so this is ok
-            print(self.manualS0indices)
-            flip[flipSize:S0size] = 0
-            flip[:flipSize] = 1
+            if S0size == 0: S0size = len(self.labels)
+            self.manualS0indices = torch.tensor(range(S0size), dtype=torch.long()) #the examples' labels are already in a randomized order, so this is ok
+            flip[int(pu*S0size):S0size] = 0
+            flip[:int(pu*S0size)] = 1
 
         images = self.transform(images)
         images = torch.stack([images, images, images], dim=1) #makes 3-channel images in a new dimension 1
@@ -129,6 +132,53 @@ class coloredMNIST(Dataset):
         images[torch.tensor(range(len(images))), (1-flip).long(), :, :] *= 0
         # self.images = images.byte().float()
         self.images = convert_image_dtype(images)
+
+    def __len__(self): 
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return self.images[idx], self.labels[idx]
+
+
+class coloredMNISTbi(Dataset):
+    
+    def __init__(self, dir, split, transform, deterministic=False, S0size=0, labels='numbers'):
+        self.transform = transform
+        dataset = MNIST(dir, train=(split=='train'), download=True)
+        images = dataset.data
+        numbers = dataset.targets
+        # keep just examples with labels of 0 or 1
+        images = images[(numbers == 0) | (numbers == 1)]
+        numbers = numbers[(numbers == 0) | (numbers == 1)]
+        pu = 0.05 #probability of unusual color
+
+        if deterministic: 
+            torch.manual_seed(1)
+            print('deterministic coloredMNIST mode')
+
+        def torch_bernoilli(p, size):
+            return (torch.rand(size) < p).float()
+        flip = torch_bernoilli(pu, len(numbers)) # 1 means the example will be the unusual color
+
+        if deterministic:
+            if S0size == 0: S0size = len(numbers)
+            self.manualS0indices = torch.tensor(range(S0size), dtype=torch.long) #the examples' labels are already in a randomized order, so this is ok
+            flip[int(pu*S0size):S0size] = 0
+            flip[:int(pu*S0size)] = 1
+        color = numbers.bool()
+        color[flip==1] = (~color)[flip==1]
+
+        images = self.transform(images)
+        images = torch.stack([images, images, images], dim=1) #makes 3-channel images in a new dimension 1
+        # dimension 0 is number of images, 1 is channels, 2 and 3 are image dimensions
+        images[torch.tensor(range(len(images))), color.long(), :, :] *= 0
+        # self.images = images.byte().float()
+        self.images = convert_image_dtype(images)
+
+        if labels=='numbers':
+            self.labels = numbers
+        elif labels=='colors':
+            self.labels = color.long()
 
     def __len__(self): 
         return len(self.labels)
@@ -160,6 +210,7 @@ class Dataset(LightningDataModule):
         val_batch_size: int = 8,
         num_samples: int = 0, #0=use full dataset size. Num points in S0
         useS1: bool = False, #whether to add additional points from S1
+        deterministic: bool = False, #whether to use deterministic S0 for colored MNIST
         patch_size: Union[int, Sequence[int]] = (256, 256),
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -173,12 +224,12 @@ class Dataset(LightningDataModule):
         self.val_batch_size = val_batch_size
         self.num_samples = num_samples
         self.useS1 = useS1
+        self.deterministic = deterministic
         self.patch_size = patch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
 
     def setup(self, stage: Optional[str] = None) -> None:
-        deterministicS0 = False #implemented only for color mnist! otherwise will be non-deterministic
         
         if self.name.lower() == 'oxfordpets':
                 train_transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
@@ -257,11 +308,27 @@ class Dataset(LightningDataModule):
                 self.data_dir,
                 split = 'train',
                 transform = trans,
-                deterministic = deterministicS0,
-                S0size = self.num_samples,
-                flipSize=5
+                deterministic = self.deterministic,
+                S0size = self.num_samples
             )
             self.val_dataset = coloredMNIST(
+                self.data_dir,
+                split = 'test',
+                transform = trans
+            )
+
+        elif self.name.lower() == 'coloredmnistbi':
+            trans = transforms.Compose([transforms.Resize(self.patch_size),])
+                                        # transforms.ToTensor()])
+
+            self.train_dataset_all = coloredMNISTbi(
+                self.data_dir,
+                split = 'train',
+                transform = trans,
+                deterministic = self.deterministic,
+                S0size = self.num_samples
+            )
+            self.val_dataset = coloredMNISTbi(
                 self.data_dir,
                 split = 'test',
                 transform = trans
@@ -270,7 +337,7 @@ class Dataset(LightningDataModule):
 
         if self.num_samples > 0:
             # generate random list and take top num_samples values as 1, all others as 0. These are S0 indices
-            if not deterministicS0:
+            if not self.deterministic:
                 randy = torch.rand(size=(len(self.train_dataset_all), ))
                 indices = torch.topk(randy, self.num_samples)[1] #actual index numbers
                 indices = [i.item() for i in indices]

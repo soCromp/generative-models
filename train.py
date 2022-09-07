@@ -69,6 +69,7 @@ def main():
         model = diffusion.base_diffusion(**modelconfig['model_params'])
     else:
         raise NotImplementedError
+    logger.watch(model, log="all")
 
     # For reproducibility
     # seed_everything(modelconfig['exp_params']['manual_seed'], True)
